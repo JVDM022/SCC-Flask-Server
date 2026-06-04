@@ -1,10 +1,15 @@
 #include <Arduino.h>
 #include "actuators.h"
+#include "bootloader_entry.h"
 #include "config.h"
 #include "controller.h"
 #include "pump_policy.h"
 #include "telemetry_schema.h"
 #include "temperature.h"
+
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY && defined(__AVR__)
+#include <avr/wdt.h>
+#endif
 
 static uint32_t lastControlMs = 0;
 static uint32_t programStartMs = 0;
@@ -25,6 +30,12 @@ static int16_t minTempAfterLastPumpCx100 = -32768;
 static float tempRateCPerSec = 0.0f;
 static uint32_t lastRateMs = 0;
 static int16_t lastRateTempCx100 = 0;
+
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
+static bool bootloaderEntryPending = false;
+static char bootloaderCommandBuf[24];
+static uint8_t bootloaderCommandIdx = 0;
+#endif
 
 enum CsvEvent : uint8_t {
   CSV_SAMPLE = 0,
@@ -115,6 +126,67 @@ static void printCsvRow(uint8_t eventCode, uint32_t now, uint16_t adc, int16_t t
   Serial.println((now - programStartMs) / 1000);
 }
 
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
+static void resetForBootloaderEntry() {
+#if defined(__AVR__)
+  wdt_enable(WDTO_15MS);
+  while (true) {
+  }
+#else
+  while (true) {
+    delay(1);
+  }
+#endif
+}
+
+static void prepareForBootloaderEntry() {
+  bootloaderEntryPending = true;
+
+  heaterSet(0);
+  motorSet(false);
+  motorEnabled = false;
+  heating = false;
+  heaterLockout = true;
+  pidIntegral = 0.0f;
+  pumpTempAllowed = false;
+  pumpOnCmd = false;
+  pumpCmdPwm = 0;
+
+  Serial.println(F("OTA_READY"));
+  Serial.flush();
+  resetForBootloaderEntry();
+}
+
+static void handleBootloaderCommandLine(char *line) {
+  if (isBootloaderEntryCommand(line)) {
+    prepareForBootloaderEntry();
+  }
+}
+
+static void serviceBootloaderEntrySerial() {
+  while (!bootloaderEntryPending && Serial.available() > 0) {
+    char c = Serial.read();
+
+    if (c == '\r') {
+      continue;
+    }
+
+    if (c == '\n') {
+      bootloaderCommandBuf[bootloaderCommandIdx] = '\0';
+      handleBootloaderCommandLine(bootloaderCommandBuf);
+      bootloaderCommandIdx = 0;
+      continue;
+    }
+
+    if (bootloaderCommandIdx < (sizeof(bootloaderCommandBuf) - 1)) {
+      bootloaderCommandBuf[bootloaderCommandIdx++] = c;
+    } else {
+      bootloaderCommandIdx = 0;
+    }
+  }
+}
+#endif
+
 static void updatePumpTelemetry(uint32_t now, uint16_t adc, int16_t tempCx100) {
   if (pumpOnCmd && !pumpWasOn) {
     lastPumpStartMs = now;
@@ -187,6 +259,14 @@ void setup() {
 
 void loop() {
   uint32_t now = millis();
+
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
+  serviceBootloaderEntrySerial();
+  if (bootloaderEntryPending) {
+    delay(1);
+    return;
+  }
+#endif
 
   if (!runtimeExpired && (now - programStartMs >= MAX_RUNTIME_MS)) {
     runtimeExpired = true;

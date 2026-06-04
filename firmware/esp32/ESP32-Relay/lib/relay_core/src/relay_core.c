@@ -407,6 +407,32 @@ void relay_update_arduino_snapshot_from_line(const char *line, relay_arduino_sna
   (void)relay_update_arduino_snapshot_from_csv(line, snapshot);
 }
 
+bool relay_parse_backend_command_type(const char *type, relay_backend_command_type_t *out) {
+  if (type == NULL || out == NULL) {
+    return false;
+  }
+
+  if (strcmp(type, "KILL") == 0) {
+    *out = RELAY_BACKEND_COMMAND_KILL;
+    return true;
+  }
+  if (strcmp(type, "SET_ON") == 0) {
+    *out = RELAY_BACKEND_COMMAND_SET_ON;
+    return true;
+  }
+  if (strcmp(type, "OTA") == 0) {
+    *out = RELAY_BACKEND_COMMAND_ESP32_OTA;
+    return true;
+  }
+  if (strcmp(type, "ARDUINO_OTA") == 0) {
+    *out = RELAY_BACKEND_COMMAND_ARDUINO_OTA;
+    return true;
+  }
+
+  *out = RELAY_BACKEND_COMMAND_UNKNOWN;
+  return false;
+}
+
 long relay_extract_long_json(const char *json, const char *key) {
   char pattern[48];
   const char *key_pos;

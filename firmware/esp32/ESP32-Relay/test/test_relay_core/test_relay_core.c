@@ -130,10 +130,37 @@ static void test_update_arduino_snapshot_ignores_non_csv_status_lines(void) {
 
 static void test_extract_json_values(void) {
   char type[8];
+  char url[64];
 
   TEST_ASSERT_EQUAL_INT(42, relay_extract_long_json("{\"cmdId\":42,\"value\":1,\"type\":\"KILL\"}", "cmdId"));
   TEST_ASSERT_TRUE(relay_extract_string_json("{\"cmdId\":42,\"type\":\"KILL\"}", "type", type, sizeof(type)));
   TEST_ASSERT_EQUAL_STRING("KILL", type);
+
+  TEST_ASSERT_TRUE(relay_extract_string_json(
+      "{\"type\":\"ARDUINO_OTA\",\"url\":\"https://example.test/uno.hex\"}",
+      "url",
+      url,
+      sizeof(url)));
+  TEST_ASSERT_EQUAL_STRING("https://example.test/uno.hex", url);
+}
+
+static void test_parse_backend_command_type_accepts_supported_commands(void) {
+  relay_backend_command_type_t command_type = RELAY_BACKEND_COMMAND_UNKNOWN;
+
+  TEST_ASSERT_TRUE(relay_parse_backend_command_type("KILL", &command_type));
+  TEST_ASSERT_EQUAL_INT(RELAY_BACKEND_COMMAND_KILL, command_type);
+
+  TEST_ASSERT_TRUE(relay_parse_backend_command_type("SET_ON", &command_type));
+  TEST_ASSERT_EQUAL_INT(RELAY_BACKEND_COMMAND_SET_ON, command_type);
+
+  TEST_ASSERT_TRUE(relay_parse_backend_command_type("OTA", &command_type));
+  TEST_ASSERT_EQUAL_INT(RELAY_BACKEND_COMMAND_ESP32_OTA, command_type);
+
+  TEST_ASSERT_TRUE(relay_parse_backend_command_type("ARDUINO_OTA", &command_type));
+  TEST_ASSERT_EQUAL_INT(RELAY_BACKEND_COMMAND_ARDUINO_OTA, command_type);
+
+  TEST_ASSERT_FALSE(relay_parse_backend_command_type("REBOOT", &command_type));
+  TEST_ASSERT_EQUAL_INT(RELAY_BACKEND_COMMAND_UNKNOWN, command_type);
 }
 
 static void test_parse_direct_method_long_value_accepts_json_and_plain_integer(void) {
@@ -186,6 +213,7 @@ static int run_relay_core_tests(void) {
   RUN_TEST(test_update_arduino_snapshot_keeps_individual_kill_flags);
   RUN_TEST(test_update_arduino_snapshot_ignores_non_csv_status_lines);
   RUN_TEST(test_extract_json_values);
+  RUN_TEST(test_parse_backend_command_type_accepts_supported_commands);
   RUN_TEST(test_parse_direct_method_long_value_accepts_json_and_plain_integer);
   RUN_TEST(test_parse_iothub_direct_method_topic);
   RUN_TEST(test_parse_iothub_direct_method_topic_rejects_invalid_topics);

@@ -35,6 +35,14 @@ typedef struct {
   uint32_t uptime_s;
 } relay_arduino_snapshot_t;
 
+typedef enum {
+  RELAY_BACKEND_COMMAND_UNKNOWN = 0,
+  RELAY_BACKEND_COMMAND_KILL,
+  RELAY_BACKEND_COMMAND_SET_ON,
+  RELAY_BACKEND_COMMAND_ESP32_OTA,
+  RELAY_BACKEND_COMMAND_ARDUINO_OTA,
+} relay_backend_command_type_t;
+
 void relay_copy_cstr(char *dest, size_t dest_len, const char *src);
 void relay_copy_lower_ascii(char *dest, size_t dest_len, const char *src);
 void relay_trim_inplace(char *s);
@@ -43,6 +51,7 @@ bool relay_url_encode(const char *src, char *dest, size_t dest_len);
 bool relay_extract_conn_string_value(const char *conn, const char *key, char *out, size_t out_len);
 
 void relay_update_arduino_snapshot_from_line(const char *line, relay_arduino_snapshot_t *snapshot);
+bool relay_parse_backend_command_type(const char *type, relay_backend_command_type_t *out);
 
 long relay_extract_long_json(const char *json, const char *key);
 bool relay_extract_string_json(const char *json, const char *key, char *out, size_t out_len);

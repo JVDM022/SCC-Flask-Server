@@ -66,6 +66,12 @@
 // ================== RUNTIME LIMIT ==================
 #define MAX_RUNTIME_MS 345600000UL  // 96 hours
 
+// ================== ESP32-DRIVEN UPDATE PREP ==================
+// Default off: keeps UART output as CSV telemetry only unless explicitly enabled.
+#ifndef ENABLE_SOFTWARE_BOOTLOADER_ENTRY
+#define ENABLE_SOFTWARE_BOOTLOADER_ENTRY 0
+#endif
+
 // ================== ADC -> TEMP TRANSFER FUNCTION ==================
 // Calibrated linear fit:
 //   tempC = -0.1871 * adc + 167.97

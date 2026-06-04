@@ -178,6 +178,35 @@ CREATE TABLE IF NOT EXISTS firmware_update_events (
     raw_payload JSONB
 );
 
+CREATE TABLE IF NOT EXISTS firmware_artifacts (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    target VARCHAR(24) NOT NULL,
+    filename VARCHAR(255) NOT NULL UNIQUE,
+    original_filename VARCHAR(255) NOT NULL,
+    file_path VARCHAR(512) NOT NULL,
+    url VARCHAR(512) NOT NULL,
+    sha256 VARCHAR(64) NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    uploaded_by VARCHAR(120),
+    notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS firmware_commands (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    target VARCHAR(24) NOT NULL,
+    command_type VARCHAR(40) NOT NULL,
+    artifact_id INTEGER NOT NULL REFERENCES firmware_artifacts(id),
+    command_json JSONB NOT NULL,
+    status VARCHAR(24) NOT NULL DEFAULT 'pending',
+    sent_at TIMESTAMPTZ,
+    ack_at TIMESTAMPTZ,
+    ack_status VARCHAR(24),
+    ack_message VARCHAR(255)
+);
+
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS site_id VARCHAR(80);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS rig_id VARCHAR(120);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS device_id VARCHAR(120);
@@ -191,6 +220,11 @@ CREATE INDEX IF NOT EXISTS idx_events_created_at ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_alarms_active ON alarms(active);
 CREATE INDEX IF NOT EXISTS idx_firmware_devices_last_heartbeat ON firmware_devices(last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_firmware_update_events_created_at ON firmware_update_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_firmware_artifacts_created_at ON firmware_artifacts(created_at);
+CREATE INDEX IF NOT EXISTS idx_firmware_artifacts_target ON firmware_artifacts(target);
+CREATE INDEX IF NOT EXISTS idx_firmware_commands_created_at ON firmware_commands(created_at);
+CREATE INDEX IF NOT EXISTS idx_firmware_commands_status ON firmware_commands(status);
+CREATE INDEX IF NOT EXISTS idx_firmware_commands_target ON firmware_commands(target);
 CREATE INDEX IF NOT EXISTS idx_devices_last_heartbeat ON devices(last_heartbeat);
 CREATE INDEX IF NOT EXISTS idx_mqtt_message_log_created_at ON mqtt_message_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_mqtt_message_log_device_id ON mqtt_message_log(device_id);

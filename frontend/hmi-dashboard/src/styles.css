@@ -708,6 +708,11 @@ button {
   min-width: 860px;
 }
 
+.firmware-artifacts table,
+.firmware-commands table {
+  min-width: 980px;
+}
+
 .mqtt-message-table table {
   min-width: 1080px;
 }
@@ -730,6 +735,104 @@ button {
 .firmware-status-stack {
   display: grid;
   gap: 6px;
+}
+
+.firmware-upload-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.firmware-banner {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.firmware-banner.warning {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.firmware-banner svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.firmware-banner.warning svg {
+  color: var(--warning);
+}
+
+.firmware-upload-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.firmware-field {
+  display: grid;
+  gap: 6px;
+}
+
+.firmware-field span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.firmware-field select,
+.firmware-field input {
+  width: 100%;
+  min-height: 38px;
+  color: var(--text);
+  background: #0b1118;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+.firmware-field select:focus,
+.firmware-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.firmware-upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.firmware-upload-actions .command-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.command-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.firmware-result {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  padding: 8px 10px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .command-grid {
@@ -935,6 +1038,10 @@ td {
 
   .top-metrics,
   .prediction-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .firmware-upload-grid {
     grid-template-columns: 1fr;
   }
 

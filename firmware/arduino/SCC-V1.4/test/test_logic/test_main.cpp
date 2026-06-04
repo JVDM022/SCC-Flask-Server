@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <unity.h>
 #include "config.h"
+#include "bootloader_entry.h"
 #include "pump_policy.h"
 #include "telemetry_schema.h"
 #include "temperature.h"
@@ -8,6 +9,7 @@
 // Keep function tests explicit so the native suite does not need to build
 // the Arduino sketch entrypoint in src/main.cpp.
 #include "../../src/controller.cpp"
+#include "../../src/bootloader_entry.cpp"
 #include "../../src/temperature.cpp"
 
 static uint8_t countCsvColumns(const char *header) {
@@ -217,6 +219,21 @@ void test_telemetry_header_uses_expected_column_order() {
   }
 }
 
+void test_bootloader_entry_accepts_supported_commands() {
+  TEST_ASSERT_TRUE(isBootloaderEntryCommand("ENTER_BOOTLOADER"));
+  TEST_ASSERT_TRUE(isBootloaderEntryCommand("OTA_PREPARE"));
+  TEST_ASSERT_TRUE(isBootloaderEntryCommand(" enter_bootloader "));
+  TEST_ASSERT_TRUE(isBootloaderEntryCommand("\tota_prepare\t"));
+}
+
+void test_bootloader_entry_rejects_other_lines() {
+  TEST_ASSERT_FALSE(isBootloaderEntryCommand(NULL));
+  TEST_ASSERT_FALSE(isBootloaderEntryCommand(""));
+  TEST_ASSERT_FALSE(isBootloaderEntryCommand("STATUS"));
+  TEST_ASSERT_FALSE(isBootloaderEntryCommand("OTA_PREPARE_NOW"));
+  TEST_ASSERT_FALSE(isBootloaderEntryCommand("ENTER_BOOTLOADER EXTRA"));
+}
+
 static void runFunctionTests() {
   RUN_TEST(test_adc_to_temp_uses_calibrated_fit);
   RUN_TEST(test_adc_to_temp_rounds_negative_values);
@@ -236,6 +253,8 @@ static void runFunctionTests() {
   RUN_TEST(test_pid_ramp_advances_to_final_hold);
   RUN_TEST(test_telemetry_header_column_count_matches_schema_constant);
   RUN_TEST(test_telemetry_header_uses_expected_column_order);
+  RUN_TEST(test_bootloader_entry_accepts_supported_commands);
+  RUN_TEST(test_bootloader_entry_rejects_other_lines);
 }
 
 #ifdef ARDUINO

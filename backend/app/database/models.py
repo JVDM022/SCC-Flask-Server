@@ -218,3 +218,36 @@ class FirmwareUpdateEvent(db.Model, SerializerMixin):
     ip_address = db.Column(db.String(64), nullable=True)
     message = db.Column(db.String(255), nullable=True)
     raw_payload = db.Column(db.JSON, nullable=True)
+
+
+class FirmwareArtifact(db.Model, SerializerMixin):
+    __tablename__ = "firmware_artifacts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    target = db.Column(db.String(24), nullable=False, index=True)
+    filename = db.Column(db.String(255), nullable=False, unique=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(512), nullable=False)
+    url = db.Column(db.String(512), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    uploaded_by = db.Column(db.String(120), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+
+
+class FirmwareCommand(db.Model, SerializerMixin):
+    __tablename__ = "firmware_commands"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    target = db.Column(db.String(24), nullable=False, index=True)
+    command_type = db.Column(db.String(40), nullable=False, index=True)
+    artifact_id = db.Column(db.Integer, db.ForeignKey("firmware_artifacts.id"), nullable=False)
+    command_json = db.Column(db.JSON, nullable=False)
+    status = db.Column(db.String(24), nullable=False, default="pending", index=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    ack_at = db.Column(db.DateTime, nullable=True)
+    ack_status = db.Column(db.String(24), nullable=True)
+    ack_message = db.Column(db.String(255), nullable=True)

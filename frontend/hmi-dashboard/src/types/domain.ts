@@ -134,6 +134,39 @@ export interface FirmwareStatus {
   events: FirmwareUpdateEvent[];
 }
 
+export type FirmwareTarget = 'ESP32' | 'ARDUINO';
+
+export interface FirmwareArtifact {
+  id: number;
+  artifactId?: number;
+  created_at?: string;
+  target: FirmwareTarget;
+  filename: string;
+  original_filename?: string;
+  url: string;
+  sha256: string;
+  size_bytes?: number;
+  sizeBytes?: number;
+  uploaded_by?: string | null;
+  notes?: string | null;
+}
+
+export interface FirmwareCommand {
+  id: number;
+  cmdId?: number;
+  created_at?: string;
+  updated_at?: string;
+  target: FirmwareTarget;
+  command_type: string;
+  artifact_id: number;
+  command_json: Record<string, unknown>;
+  status: string;
+  sent_at?: string | null;
+  ack_at?: string | null;
+  ack_status?: string | null;
+  ack_message?: string | null;
+}
+
 export interface Device {
   device_id: string;
   site_id: string;

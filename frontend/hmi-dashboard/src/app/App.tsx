@@ -49,11 +49,35 @@ const navItems: Array<{ id: PageId; label: string; icon: LucideIcon }> = [
   { id: 'mpc', label: 'MPC', icon: Cpu },
   { id: 'digital-twin', label: 'Digital Twin', icon: FlaskConical },
   { id: 'equipment-health', label: 'Equipment Health', icon: ShieldAlert },
-  { id: 'firmware-ota', label: 'Firmware OTA', icon: UploadCloud },
+  { id: 'firmware-ota', label: 'Firmware', icon: UploadCloud },
   { id: 'mqtt-fleet', label: 'MQTT Fleet', icon: RadioTower },
   { id: 'events', label: 'Events', icon: RadioTower },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
+
+const pageRoutes: Record<string, PageId> = {
+  operations: 'operations',
+  analytics: 'analytics',
+  models: 'models',
+  mpc: 'mpc',
+  'digital-twin': 'digital-twin',
+  'equipment-health': 'equipment-health',
+  firmware: 'firmware-ota',
+  'firmware-ota': 'firmware-ota',
+  'mqtt-fleet': 'mqtt-fleet',
+  events: 'events',
+  settings: 'settings',
+};
+
+function pageFromLocation(): PageId {
+  const hashPage = window.location.hash.replace(/^#\/?/, '').trim();
+  const pathPage = window.location.pathname.replace(/^\/+/, '').trim();
+  return pageRoutes[hashPage] || pageRoutes[pathPage] || 'operations';
+}
+
+function routeForPage(page: PageId): string {
+  return page === 'firmware-ota' ? 'firmware' : page;
+}
 
 function connectionTone(data: DashboardData, isError: boolean): StatusTone {
   if (isError) return 'offline';
@@ -77,13 +101,19 @@ function renderPage(page: PageId, data: DashboardData) {
 }
 
 export function App() {
-  const [activePage, setActivePage] = useState<PageId>('operations');
+  const [activePage, setActivePage] = useState<PageId>(() => pageFromLocation());
   const queryClient = useQueryClient();
   const query = useDashboardData();
   const data = query.data || emptyData;
   const activeNav = navItems.find((item) => item.id === activePage) || navItems[0];
   const activeController = useMemo(() => modeLabel(data.latest?.mode), [data.latest?.mode]);
   const tone = connectionTone(data, query.isError);
+
+  useEffect(() => {
+    const handleHashChange = () => setActivePage(pageFromLocation());
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   useEffect(() => {
     const baseUrl = import.meta.env.VITE_WS_URL || 'http://localhost:5050';
@@ -116,7 +146,14 @@ export function App() {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button className={activePage === item.id ? 'active' : ''} key={item.id} onClick={() => setActivePage(item.id)}>
+              <button
+                className={activePage === item.id ? 'active' : ''}
+                key={item.id}
+                onClick={() => {
+                  setActivePage(item.id);
+                  window.location.hash = `/${routeForPage(item.id)}`;
+                }}
+              >
                 <Icon size={17} />
                 <span>{item.label}</span>
               </button>

@@ -21,6 +21,8 @@ class Config:
     FIRMWARE_SOURCE_DIR = os.getenv("FIRMWARE_SOURCE_DIR", "/app/firmware")
     FIRMWARE_PLATFORMIO_ENV = os.getenv("FIRMWARE_PLATFORMIO_ENV", "esp32doit-devkit-v1")
     FIRMWARE_OTA_PORT = os.getenv("FIRMWARE_OTA_PORT", "")
+    FIRMWARE_STORAGE_DIR = os.getenv("FIRMWARE_STORAGE_DIR", str(BASE_DIR / "storage" / "firmware"))
+    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:5000").rstrip("/")
     MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
     MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
     MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "scc-backend")

@@ -7,6 +7,7 @@ def create_app(config_object: type[Config] = Config) -> Flask:
     from flask import Flask
     from flask_cors import CORS
 
+    from .api.firmware import firmware_api
     from .api.routes import api
     from .database.db import db
     from .realtime import socketio
@@ -19,6 +20,7 @@ def create_app(config_object: type[Config] = Config) -> Flask:
     db.init_app(app)
     socketio.init_app(app, cors_allowed_origins=app.config.get("CORS_ORIGINS", "*"))
     app.register_blueprint(api)
+    app.register_blueprint(firmware_api)
     start_mqtt_subscriber(app)
 
     @app.cli.command("init-db")

@@ -1,12 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, Clipboard, Cpu, FolderGit2, RadioTower, TerminalSquare, UploadCloud } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, CheckCircle2, Clipboard, Cpu, FileUp, FolderGit2, RadioTower, Send, TerminalSquare, UploadCloud } from 'lucide-react';
 import { useState } from 'react';
 
-import { fetchFirmwareStatus } from '../api/client';
+import { createFirmwareCommand, fetchFirmwareStatus, getFirmwareArtifacts, getFirmwareCommands, uploadFirmwareArtifact } from '../api/client';
 import { MetricCard } from '../components/MetricCard';
 import { Skeleton } from '../components/Skeleton';
 import { StatusIndicator, type StatusTone } from '../components/StatusIndicator';
-import type { FirmwareDevice, FirmwareUpdateEvent } from '../types/domain';
+import type { FirmwareArtifact, FirmwareCommand, FirmwareDevice, FirmwareTarget, FirmwareUpdateEvent } from '../types/domain';
 import { formatDateTime } from '../utils';
 
 function otaTone(status?: string | null): StatusTone {
@@ -27,6 +27,138 @@ function copyCommand(command: string, setCopied: (copied: boolean) => void) {
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   });
+}
+
+function artifactSize(artifact: FirmwareArtifact): string {
+  const size = artifact.sizeBytes ?? artifact.size_bytes ?? 0;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function shortHash(hash?: string): string {
+  return hash ? `${hash.slice(0, 12)}...` : '--';
+}
+
+function UploadPanel({
+  uploadedArtifact,
+  onUploaded,
+}: {
+  uploadedArtifact: FirmwareArtifact | null;
+  onUploaded: (artifact: FirmwareArtifact) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState<FirmwareTarget>('ESP32');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [message, setMessage] = useState('');
+  const accept = target === 'ESP32' ? '.bin' : '.hex';
+
+  const uploadMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedFile) throw new Error('Choose a firmware artifact first.');
+      return uploadFirmwareArtifact(target, selectedFile);
+    },
+    onSuccess: (artifact) => {
+      onUploaded(artifact);
+      setMessage(`Uploaded ${artifact.filename}`);
+      queryClient.invalidateQueries({ queryKey: ['firmware-artifacts'] });
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Upload failed'),
+  });
+
+  const commandMutation = useMutation({
+    mutationFn: () => {
+      const artifactId = uploadedArtifact?.artifactId ?? uploadedArtifact?.id;
+      if (!artifactId || !uploadedArtifact) throw new Error('Upload an artifact before queueing OTA.');
+      return createFirmwareCommand(uploadedArtifact.target, artifactId);
+    },
+    onSuccess: () => {
+      setMessage('OTA command queued');
+      queryClient.invalidateQueries({ queryKey: ['firmware-commands'] });
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'Command queue failed'),
+  });
+
+  return (
+    <section className="panel firmware-upload-panel">
+      <div className="panel__header">
+        <div>
+          <h2>Firmware Upload</h2>
+          <p>Store a firmware artifact, then queue an OTA command for the ESP32 relay to poll.</p>
+        </div>
+        <FileUp size={20} />
+      </div>
+
+      <div className={`firmware-banner ${target === 'ARDUINO' ? 'warning' : 'info'}`}>
+        {target === 'ARDUINO' ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+        <span>
+          {target === 'ARDUINO'
+            ? 'Arduino .hex upload is supported, but Arduino flashing is scaffolding only unless the ESP32 STK500/Optiboot flasher has been implemented.'
+            : 'ESP32 .bin OTA can update the ESP32 when ESP32 firmware supports OTA download from URL.'}
+        </span>
+      </div>
+
+      <div className="firmware-upload-grid">
+        <label className="firmware-field">
+          <span>Target</span>
+          <select
+            value={target}
+            onChange={(event) => {
+              setTarget(event.target.value as FirmwareTarget);
+              setSelectedFile(null);
+              setMessage('');
+            }}
+          >
+            <option value="ESP32">ESP32</option>
+            <option value="ARDUINO">Arduino</option>
+          </select>
+        </label>
+
+        <label className="firmware-field">
+          <span>Artifact</span>
+          <input
+            type="file"
+            accept={accept}
+            onChange={(event) => {
+              setSelectedFile(event.target.files?.[0] || null);
+              setMessage('');
+            }}
+          />
+        </label>
+
+        <div className="firmware-upload-actions">
+          <button className="command-button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending}>
+            <UploadCloud size={16} />
+            {uploadMutation.isPending ? 'Uploading' : 'Upload'}
+          </button>
+          <button className="command-button" onClick={() => commandMutation.mutate()} disabled={!uploadedArtifact || commandMutation.isPending}>
+            <Send size={16} />
+            {commandMutation.isPending ? 'Queueing' : 'Queue OTA'}
+          </button>
+        </div>
+      </div>
+
+      {message ? <div className="firmware-result">{message}</div> : null}
+
+      {uploadedArtifact ? (
+        <div className="command-card">
+          <div className="command-card__header">
+            <div>
+              <span>Latest upload</span>
+              <strong>{uploadedArtifact.filename}</strong>
+            </div>
+            <StatusIndicator label={uploadedArtifact.target} tone={uploadedArtifact.target === 'ESP32' ? 'online' : 'warning'} />
+          </div>
+          <div className="command-meta">
+            <div><span>URL</span><strong>{uploadedArtifact.url}</strong></div>
+            <div><span>SHA-256</span><strong>{uploadedArtifact.sha256}</strong></div>
+            <div><span>Size</span><strong>{artifactSize(uploadedArtifact)}</strong></div>
+            <div><span>Target</span><strong>{uploadedArtifact.target === 'ARDUINO' ? 'Arduino' : 'ESP32'}</strong></div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function CommandHelper({ device }: { device: FirmwareDevice }) {
@@ -141,13 +273,94 @@ function EventTable({ events }: { events: FirmwareUpdateEvent[] }) {
   );
 }
 
+function ArtifactTable({ artifacts }: { artifacts: FirmwareArtifact[] }) {
+  return (
+    <div className="event-table firmware-artifacts">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Target</th>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>SHA-256</th>
+            <th>URL</th>
+          </tr>
+        </thead>
+        <tbody>
+          {artifacts.length ? (
+            artifacts.map((artifact) => (
+              <tr key={artifact.id}>
+                <td>{formatDateTime(artifact.created_at)}</td>
+                <td>{artifact.target}</td>
+                <td>{valueOrDash(artifact.filename)}</td>
+                <td>{artifactSize(artifact)}</td>
+                <td>{shortHash(artifact.sha256)}</td>
+                <td>{valueOrDash(artifact.url)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr><td colSpan={6}>No firmware artifacts have been uploaded.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CommandTable({ commands }: { commands: FirmwareCommand[] }) {
+  return (
+    <div className="event-table firmware-commands">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Command</th>
+            <th>Target</th>
+            <th>Status</th>
+            <th>Ack</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {commands.length ? (
+            commands.map((command) => (
+              <tr key={command.id}>
+                <td>{formatDateTime(command.created_at)}</td>
+                <td>{command.command_type} #{command.cmdId ?? command.id}</td>
+                <td>{command.target}</td>
+                <td><StatusIndicator label={command.status} tone={otaTone(command.status)} /></td>
+                <td>{valueOrDash(command.ack_status)}</td>
+                <td>{valueOrDash(command.ack_message)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr><td colSpan={6}>No firmware commands have been queued.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function FirmwareOtaDashboard() {
+  const [uploadedArtifact, setUploadedArtifact] = useState<FirmwareArtifact | null>(null);
   const query = useQuery({
     queryKey: ['firmware-status'],
     queryFn: fetchFirmwareStatus,
     refetchInterval: 3000,
     staleTime: 1500,
     retry: 1,
+  });
+  const artifactQuery = useQuery({
+    queryKey: ['firmware-artifacts'],
+    queryFn: getFirmwareArtifacts,
+    refetchInterval: 5000,
+  });
+  const commandQuery = useQuery({
+    queryKey: ['firmware-commands'],
+    queryFn: getFirmwareCommands,
+    refetchInterval: 5000,
   });
   const status = query.data;
   const devices = status?.devices || [];
@@ -180,6 +393,8 @@ export function FirmwareOtaDashboard() {
         <MetricCard label="Firmware Source" value={valueOrDash(status?.firmware_source_dir)} icon={FolderGit2} detail="Run PlatformIO here" />
       </section>
 
+      <UploadPanel uploadedArtifact={uploadedArtifact} onUploaded={setUploadedArtifact} />
+
       <section className="panel">
         <div className="panel__header">
           <div>
@@ -189,6 +404,26 @@ export function FirmwareOtaDashboard() {
           <UploadCloud size={20} />
         </div>
         <FirmwareTable devices={devices} />
+      </section>
+
+      <section className="panel">
+        <div className="panel__header">
+          <div>
+            <h2>Artifacts</h2>
+            <p>Recent uploaded binaries and hex files served from the backend firmware storage path.</p>
+          </div>
+        </div>
+        <ArtifactTable artifacts={artifactQuery.data || []} />
+      </section>
+
+      <section className="panel">
+        <div className="panel__header">
+          <div>
+            <h2>Queued Commands</h2>
+            <p>Pending, sent, and acknowledged firmware commands polled by the ESP32 relay.</p>
+          </div>
+        </div>
+        <CommandTable commands={commandQuery.data || []} />
       </section>
 
       <section className="panel">

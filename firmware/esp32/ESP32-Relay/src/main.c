@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
+#include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_crt_bundle.h"
 #include "esp_eap_client.h"
@@ -94,6 +95,18 @@
 #ifndef NTP_SERVER
 #define NTP_SERVER "pool.ntp.org"
 #endif
+#ifndef ARDUINO_OTA_ENABLED
+#define ARDUINO_OTA_ENABLED 0
+#endif
+#ifndef ARDUINO_RESET_GPIO
+#define ARDUINO_RESET_GPIO -1
+#endif
+#ifndef ARDUINO_OTA_MAX_FIRMWARE_BYTES
+#define ARDUINO_OTA_MAX_FIRMWARE_BYTES 32768U
+#endif
+#ifndef ARDUINO_OTA_MAX_URL_LEN
+#define ARDUINO_OTA_MAX_URL_LEN 320
+#endif
 
 #define ESP32_RX2 16
 #define ESP32_TX2 17
@@ -108,6 +121,7 @@
 #define MAX_HTTP_RESPONSE_LEN 768
 #define MAX_CMD_TYPE_LEN 24
 #define MAX_OTA_URL_LEN 320
+#define MAX_ARDUINO_OTA_URL_LEN ARDUINO_OTA_MAX_URL_LEN
 #define MAX_IOTHUB_HOST_LEN 128
 #define MAX_IOTHUB_DEVICE_ID_LEN 128
 #define MAX_IOTHUB_KEY_LEN 128
@@ -129,6 +143,15 @@ typedef struct {
   size_t len;
 } http_response_buffer_t;
 
+typedef enum {
+  ARDUINO_OTA_START_PREPARED = 0,
+  ARDUINO_OTA_START_DISABLED,
+  ARDUINO_OTA_START_MISSING_URL,
+  ARDUINO_OTA_START_BUSY,
+  ARDUINO_OTA_START_BAD_URL,
+  ARDUINO_OTA_START_NO_WIFI,
+} arduino_ota_start_result_t;
+
 static const char *TAG = "esp32-relay";
 static EventGroupHandle_t s_wifi_event_group;
 static bool s_wifi_connected = false;
@@ -140,6 +163,7 @@ static char s_http_post_response[256];
 static char s_telemetry_payload[768];
 static char s_cmd_type[MAX_CMD_TYPE_LEN];
 static char s_ota_url[MAX_OTA_URL_LEN];
+static char s_arduino_ota_url[MAX_ARDUINO_OTA_URL_LEN];
 static char s_cmd_line[48];
 static char s_iothub_host[MAX_IOTHUB_HOST_LEN];
 static char s_iothub_device_id[MAX_IOTHUB_DEVICE_ID_LEN];
@@ -152,6 +176,7 @@ static bool s_iothub_checked = false;
 static bool s_iothub_configured = false;
 static bool s_mqtt_connected = false;
 static bool s_sntp_initialized = false;
+static bool s_arduino_ota_in_progress = false;
 static uint32_t s_uart_rx_bytes = 0;
 static uint32_t s_uart_rx_lines = 0;
 static uint32_t s_last_uart_rx_log_ms = 0;
@@ -165,10 +190,118 @@ static uint32_t now_ms(void) {
   return (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
+static bool is_http_url(const char *url) {
+  return url != NULL && (strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0);
+}
+
 static void start_wifi_connect_attempt(void) {
   s_wifi_connecting = true;
   s_wifi_connect_started_ms = now_ms();
   esp_wifi_connect();
+}
+
+static void set_arduino_ota_in_progress(bool in_progress, const char *status) {
+  s_arduino_ota_in_progress = in_progress;
+  ESP_LOGI(TAG, "Arduino OTA status: %s", status != NULL ? status : (in_progress ? "in_progress" : "idle"));
+}
+
+static bool arduino_reset_gpio_is_configured(void) {
+  return ARDUINO_RESET_GPIO >= 0;
+}
+
+static void init_arduino_reset_gpio(void) {
+#if ARDUINO_RESET_GPIO >= 0
+  gpio_config_t io_conf = {
+      .pin_bit_mask = 1ULL << ARDUINO_RESET_GPIO,
+      .mode = GPIO_MODE_OUTPUT,
+      .pull_up_en = GPIO_PULLUP_DISABLE,
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,
+      .intr_type = GPIO_INTR_DISABLE,
+  };
+
+  ESP_ERROR_CHECK(gpio_config(&io_conf));
+  ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ARDUINO_RESET_GPIO, 1));
+  ESP_LOGI(TAG, "Arduino RESET configured on GPIO%d (active low)", ARDUINO_RESET_GPIO);
+#else
+  ESP_LOGI(TAG, "Arduino RESET GPIO not wired/configured (ARDUINO_RESET_GPIO=%d)", ARDUINO_RESET_GPIO);
+#endif
+}
+
+static bool pulse_arduino_reset(void) {
+#if ARDUINO_RESET_GPIO >= 0
+  ESP_LOGI(TAG, "Pulsing Arduino RESET on GPIO%d", ARDUINO_RESET_GPIO);
+  ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ARDUINO_RESET_GPIO, 0));
+  vTaskDelay(pdMS_TO_TICKS(100));
+  ESP_ERROR_CHECK(gpio_set_level((gpio_num_t)ARDUINO_RESET_GPIO, 1));
+  vTaskDelay(pdMS_TO_TICKS(250));
+  ESP_LOGI(TAG, "Arduino RESET pulse complete");
+  return true;
+#else
+  ESP_LOGW(TAG, "Arduino RESET pulse skipped: ARDUINO_RESET_GPIO is not wired/configured");
+  return false;
+#endif
+}
+
+static arduino_ota_start_result_t prepare_arduino_ota(const char *url) {
+  if (url == NULL || url[0] == '\0') {
+    ESP_LOGW(TAG, "Arduino OTA command ignored: missing firmware URL");
+    return ARDUINO_OTA_START_MISSING_URL;
+  }
+  if (ARDUINO_OTA_ENABLED == 0) {
+    ESP_LOGW(TAG, "Arduino OTA command ignored: ARDUINO_OTA_ENABLED=0");
+    return ARDUINO_OTA_START_DISABLED;
+  }
+  if (s_arduino_ota_in_progress) {
+    ESP_LOGW(TAG, "Arduino OTA command ignored: another Arduino OTA operation is already in progress");
+    return ARDUINO_OTA_START_BUSY;
+  }
+  if (!is_http_url(url)) {
+    ESP_LOGW(TAG, "Arduino OTA command ignored: unsupported firmware URL scheme: %s", url);
+    return ARDUINO_OTA_START_BAD_URL;
+  }
+
+  set_arduino_ota_in_progress(true, "preparing");
+  relay_copy_cstr(s_arduino_ota_url, sizeof(s_arduino_ota_url), url);
+  ESP_LOGI(TAG, "Arduino OTA: normal Arduino command forwarding paused");
+  ESP_LOGI(TAG, "Arduino OTA: firmware URL accepted: %s", s_arduino_ota_url);
+  ESP_LOGI(TAG, "Arduino OTA: max firmware size configured: %lu bytes", (unsigned long)ARDUINO_OTA_MAX_FIRMWARE_BYTES);
+
+  if (!s_wifi_connected) {
+    ESP_LOGW(TAG, "Arduino OTA: cannot prepare download path until WiFi/IP is connected");
+    set_arduino_ota_in_progress(false, "failed_no_wifi");
+    return ARDUINO_OTA_START_NO_WIFI;
+  }
+
+  ESP_LOGI(TAG, "Arduino OTA: download path prepared for URL fetch");
+  if (arduino_reset_gpio_is_configured()) {
+    (void)pulse_arduino_reset();
+  } else {
+    ESP_LOGW(TAG, "Arduino OTA: reset GPIO is not wired; bootloader entry must be handled by Arduino firmware or manual reset");
+  }
+
+  ESP_LOGW(TAG, "Arduino OTA: STK500v1/Optiboot programmer is not implemented/tested; firmware was not flashed");
+  set_arduino_ota_in_progress(false, "prepared_not_flashed");
+  ESP_LOGI(TAG, "Arduino OTA: normal Arduino command forwarding resumed");
+  return ARDUINO_OTA_START_PREPARED;
+}
+
+static const char *arduino_ota_start_result_name(arduino_ota_start_result_t result) {
+  switch (result) {
+    case ARDUINO_OTA_START_PREPARED:
+      return "prepared_not_flashed";
+    case ARDUINO_OTA_START_DISABLED:
+      return "disabled";
+    case ARDUINO_OTA_START_MISSING_URL:
+      return "missing_url";
+    case ARDUINO_OTA_START_BUSY:
+      return "busy";
+    case ARDUINO_OTA_START_BAD_URL:
+      return "bad_url";
+    case ARDUINO_OTA_START_NO_WIFI:
+      return "no_wifi";
+    default:
+      return "unknown";
+  }
 }
 
 static bool parse_iothub_connection_string(void) {
@@ -463,6 +596,10 @@ static void send_to_arduino(const char *cmd_line) {
   if (cmd_line == NULL || cmd_line[0] == '\0') {
     return;
   }
+  if (s_arduino_ota_in_progress) {
+    ESP_LOGW(TAG, "Arduino command suppressed during Arduino OTA: %s", cmd_line);
+    return;
+  }
 
   uart_write_bytes(UART_PORT, cmd_line, strlen(cmd_line));
   uart_write_bytes(UART_PORT, "\n", 1);
@@ -496,6 +633,8 @@ static void handle_iothub_direct_method(esp_mqtt_event_handle_t event) {
   long value;
   long normalized_value;
   size_t copy_len = 0;
+  relay_backend_command_type_t command_type;
+  arduino_ota_start_result_t arduino_ota_result;
 
   if (event == NULL || event->topic == NULL || event->topic_len <= 0) {
     return;
@@ -523,9 +662,27 @@ static void handle_iothub_direct_method(esp_mqtt_event_handle_t event) {
 
   ESP_LOGI(TAG, "IoT Hub direct method received: %s payload=%s", method_name, payload[0] != '\0' ? payload : "{}");
 
-  if (strcmp(method_name, "KILL") != 0) {
+  if (!relay_parse_backend_command_type(method_name, &command_type) ||
+      (command_type != RELAY_BACKEND_COMMAND_KILL && command_type != RELAY_BACKEND_COMMAND_ARDUINO_OTA)) {
     snprintf(response, sizeof(response), "{\"ok\":false,\"error\":\"unsupported method\"}");
     publish_iothub_method_response(request_id, 404, response);
+    return;
+  }
+
+  if (command_type == RELAY_BACKEND_COMMAND_ARDUINO_OTA) {
+    s_arduino_ota_url[0] = '\0';
+    (void)relay_extract_string_json(payload, "url", s_arduino_ota_url, sizeof(s_arduino_ota_url));
+    arduino_ota_result = prepare_arduino_ota(s_arduino_ota_url);
+    snprintf(
+        response,
+        sizeof(response),
+        "{\"ok\":%s,\"status\":\"%s\"}",
+        arduino_ota_result == ARDUINO_OTA_START_PREPARED ? "true" : "false",
+        arduino_ota_start_result_name(arduino_ota_result));
+    publish_iothub_method_response(
+        request_id,
+        arduino_ota_result == ARDUINO_OTA_START_PREPARED ? 202 : 400,
+        response);
     return;
   }
 
@@ -864,6 +1021,8 @@ static void poll_command_and_forward(void) {
   long cmd_id;
   long value;
   const char *selected_ota_url;
+  relay_backend_command_type_t command_type;
+  arduino_ota_start_result_t arduino_ota_result;
 
   s_http_get_response[0] = '\0';
   s_cmd_type[0] = '\0';
@@ -883,33 +1042,49 @@ static void poll_command_and_forward(void) {
   if (cmd_id <= 0 || !relay_extract_string_json(s_http_get_response, "type", s_cmd_type, sizeof(s_cmd_type)) || s_cmd_type[0] == '\0') {
     return;
   }
+  if (!relay_parse_backend_command_type(s_cmd_type, &command_type)) {
+    ESP_LOGW(TAG, "Unknown command type: %s", s_cmd_type);
+    return;
+  }
 
   if (cmd_id == s_last_cmd_id_seen) {
     return;
   }
   s_last_cmd_id_seen = cmd_id;
 
-  if (strcmp(s_cmd_type, "KILL") == 0) {
-    snprintf(s_cmd_line, sizeof(s_cmd_line), "KILL %ld", value);
-    send_to_arduino(s_cmd_line);
-  } else if (strcmp(s_cmd_type, "SET_ON") == 0) {
-    snprintf(s_cmd_line, sizeof(s_cmd_line), "SET_ON %ld", value);
-    send_to_arduino(s_cmd_line);
-  } else if (strcmp(s_cmd_type, "OTA") == 0) {
-    selected_ota_url = OTA_FIRMWARE_URL;
-    s_ota_url[0] = '\0';
-    if (relay_extract_string_json(s_http_get_response, "url", s_ota_url, sizeof(s_ota_url)) && s_ota_url[0] != '\0') {
-      selected_ota_url = s_ota_url;
-    }
+  switch (command_type) {
+    case RELAY_BACKEND_COMMAND_KILL:
+      snprintf(s_cmd_line, sizeof(s_cmd_line), "KILL %ld", value);
+      send_to_arduino(s_cmd_line);
+      break;
+    case RELAY_BACKEND_COMMAND_SET_ON:
+      snprintf(s_cmd_line, sizeof(s_cmd_line), "SET_ON %ld", value);
+      send_to_arduino(s_cmd_line);
+      break;
+    case RELAY_BACKEND_COMMAND_ESP32_OTA:
+      selected_ota_url = OTA_FIRMWARE_URL;
+      s_ota_url[0] = '\0';
+      if (relay_extract_string_json(s_http_get_response, "url", s_ota_url, sizeof(s_ota_url)) && s_ota_url[0] != '\0') {
+        selected_ota_url = s_ota_url;
+      }
 
-    if (selected_ota_url == NULL || selected_ota_url[0] == '\0') {
-      ESP_LOGW(TAG, "OTA command ignored: missing firmware URL");
-      return;
-    }
+      if (selected_ota_url == NULL || selected_ota_url[0] == '\0') {
+        ESP_LOGW(TAG, "OTA command ignored: missing firmware URL");
+        return;
+      }
 
-    perform_ota_update(selected_ota_url);
-  } else {
-    ESP_LOGW(TAG, "Unknown command type: %s", s_cmd_type);
+      perform_ota_update(selected_ota_url);
+      break;
+    case RELAY_BACKEND_COMMAND_ARDUINO_OTA:
+      s_arduino_ota_url[0] = '\0';
+      (void)relay_extract_string_json(s_http_get_response, "url", s_arduino_ota_url, sizeof(s_arduino_ota_url));
+      arduino_ota_result = prepare_arduino_ota(s_arduino_ota_url);
+      ESP_LOGI(TAG, "Arduino OTA command result: %s", arduino_ota_start_result_name(arduino_ota_result));
+      break;
+    case RELAY_BACKEND_COMMAND_UNKNOWN:
+    default:
+      ESP_LOGW(TAG, "Unknown command type: %s", s_cmd_type);
+      break;
   }
 }
 
@@ -1086,6 +1261,7 @@ void app_main(void) {
   ESP_ERROR_CHECK(ret);
 
   init_uart();
+  init_arduino_reset_gpio();
   init_wifi_enterprise();
 
   if (OTA_CHECK_ON_BOOT != 0) {
