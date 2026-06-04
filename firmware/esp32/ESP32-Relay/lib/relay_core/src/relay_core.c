@@ -1,0 +1,603 @@
+#include "relay_core.h"
+
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+void relay_copy_cstr(char *dest, size_t dest_len, const char *src) {
+  if (dest_len == 0) {
+    return;
+  }
+  if (src == NULL) {
+    dest[0] = '\0';
+    return;
+  }
+  strncpy(dest, src, dest_len - 1);
+  dest[dest_len - 1] = '\0';
+}
+
+void relay_copy_lower_ascii(char *dest, size_t dest_len, const char *src) {
+  size_t i = 0;
+
+  if (dest_len == 0) {
+    return;
+  }
+  if (src == NULL) {
+    dest[0] = '\0';
+    return;
+  }
+
+  while (src[i] != '\0' && i < dest_len - 1) {
+    dest[i] = (char)tolower((unsigned char)src[i]);
+    i++;
+  }
+  dest[i] = '\0';
+}
+
+void relay_trim_inplace(char *s) {
+  size_t len;
+  size_t i;
+  size_t start = 0;
+
+  if (s == NULL) {
+    return;
+  }
+
+  len = strlen(s);
+  while (start < len && isspace((unsigned char)s[start])) {
+    start++;
+  }
+  if (start > 0) {
+    memmove(s, s + start, len - start + 1);
+  }
+
+  len = strlen(s);
+  for (i = len; i > 0; i--) {
+    if (!isspace((unsigned char)s[i - 1])) {
+      break;
+    }
+    s[i - 1] = '\0';
+  }
+}
+
+bool relay_url_encode(const char *src, char *dest, size_t dest_len) {
+  static const char hex[] = "0123456789ABCDEF";
+  size_t i = 0;
+  size_t out = 0;
+
+  if (src == NULL || dest == NULL || dest_len == 0) {
+    return false;
+  }
+
+  for (i = 0; src[i] != '\0'; i++) {
+    unsigned char c = (unsigned char)src[i];
+    bool unreserved = isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~';
+
+    if (unreserved) {
+      if (out + 1 >= dest_len) {
+        dest[0] = '\0';
+        return false;
+      }
+      dest[out++] = (char)c;
+    } else {
+      if (out + 3 >= dest_len) {
+        dest[0] = '\0';
+        return false;
+      }
+      dest[out++] = '%';
+      dest[out++] = hex[(c >> 4) & 0x0F];
+      dest[out++] = hex[c & 0x0F];
+    }
+  }
+
+  dest[out] = '\0';
+  return true;
+}
+
+bool relay_extract_conn_string_value(const char *conn, const char *key, char *out, size_t out_len) {
+  const char *cursor;
+  size_t key_len;
+
+  if (conn == NULL || key == NULL || out == NULL || out_len == 0) {
+    return false;
+  }
+
+  out[0] = '\0';
+  key_len = strlen(key);
+  cursor = conn;
+
+  while (*cursor != '\0') {
+    const char *segment_end = strchr(cursor, ';');
+    size_t segment_len;
+
+    if (segment_end == NULL) {
+      segment_end = cursor + strlen(cursor);
+    }
+    segment_len = (size_t)(segment_end - cursor);
+
+    if (segment_len > key_len + 1 && strncmp(cursor, key, key_len) == 0 && cursor[key_len] == '=') {
+      size_t value_len = segment_len - key_len - 1;
+      if (value_len >= out_len) {
+        value_len = out_len - 1;
+      }
+      memcpy(out, cursor + key_len + 1, value_len);
+      out[value_len] = '\0';
+      return value_len > 0;
+    }
+
+    if (*segment_end == '\0') {
+      break;
+    }
+    cursor = segment_end + 1;
+  }
+
+  return false;
+}
+
+static bool relay_read_csv_field(const char **cursor, char *out, size_t out_len, bool *has_more) {
+  const char *start;
+  const char *end;
+  size_t len;
+
+  if (cursor == NULL || *cursor == NULL || out == NULL || out_len == 0 || has_more == NULL) {
+    return false;
+  }
+
+  start = *cursor;
+  end = start;
+  while (*end != '\0' && *end != ',' && *end != '\r' && *end != '\n') {
+    end++;
+  }
+
+  while (start < end && isspace((unsigned char)*start)) {
+    start++;
+  }
+  while (end > start && isspace((unsigned char)end[-1])) {
+    end--;
+  }
+
+  len = (size_t)(end - start);
+  if (len >= out_len) {
+    out[0] = '\0';
+    return false;
+  }
+
+  memcpy(out, start, len);
+  out[len] = '\0';
+
+  if (**cursor != '\0') {
+    while (*end != '\0' && *end != ',' && *end != '\r' && *end != '\n') {
+      end++;
+    }
+  }
+  if (*end == ',') {
+    *cursor = end + 1;
+    *has_more = true;
+  } else {
+    *cursor = end;
+    *has_more = false;
+  }
+  return true;
+}
+
+static bool relay_parse_csv_float_token(const char *token, float *out) {
+  char *end_ptr;
+
+  if (token == NULL || token[0] == '\0' || out == NULL) {
+    return false;
+  }
+
+  *out = strtof(token, &end_ptr);
+  return end_ptr != token && *end_ptr == '\0';
+}
+
+static bool relay_parse_csv_int_token(const char *token, int *out) {
+  long value;
+  char *end_ptr;
+
+  if (token == NULL || token[0] == '\0' || out == NULL) {
+    return false;
+  }
+
+  value = strtol(token, &end_ptr, 10);
+  if (end_ptr == token || *end_ptr != '\0') {
+    return false;
+  }
+
+  *out = (int)value;
+  return true;
+}
+
+static bool relay_parse_csv_u32_token(const char *token, uint32_t *out) {
+  unsigned long value;
+  char *end_ptr;
+
+  if (token == NULL || token[0] == '\0' || out == NULL) {
+    return false;
+  }
+
+  value = strtoul(token, &end_ptr, 10);
+  if (end_ptr == token || *end_ptr != '\0') {
+    return false;
+  }
+
+  *out = (uint32_t)value;
+  return true;
+}
+
+static bool relay_update_arduino_snapshot_from_csv(const char *line, relay_arduino_snapshot_t *snapshot) {
+  enum {
+    CSV_EVENT = 0,
+    CSV_MS = 1,
+    CSV_TEMP_C = 2,
+    CSV_ADC = 3,
+    CSV_DTEMP_C_PER_S = 4,
+    CSV_SETPOINT_C = 5,
+    CSV_MODE = 6,
+    CSV_HEATER_PWM = 7,
+    CSV_HEATING = 8,
+    CSV_HEATER_LOCKOUT = 9,
+    CSV_PUMP_ENABLED = 10,
+    CSV_PUMP_ALLOWED = 11,
+    CSV_PUMP_ON = 12,
+    CSV_MOTOR_PWM = 13,
+    CSV_MOTOR_ON_MS = 14,
+    CSV_MOTOR_PERIOD_MS = 15,
+    CSV_TEMP_BEFORE_PUMP_C = 16,
+    CSV_MIN_TEMP_AFTER_PUMP_C = 17,
+    CSV_LAST_PUMP_DROP_C = 18,
+    CSV_RECOVERY_TIME_S = 19,
+    CSV_MANUAL_KILL = 20,
+    CSV_HARD_KILL = 21,
+    CSV_UPTIME_S = 22,
+    CSV_REQUIRED_FIELDS = 23,
+  };
+
+  const char *cursor = line;
+  char field[32];
+  bool has_more = true;
+  relay_arduino_snapshot_t parsed = {0};
+  int index;
+
+  if (line == NULL || snapshot == NULL || strchr(line, ',') == NULL) {
+    return false;
+  }
+
+  for (index = 0; index < CSV_REQUIRED_FIELDS; index++) {
+    if (!relay_read_csv_field(&cursor, field, sizeof(field), &has_more)) {
+      return false;
+    }
+
+    switch (index) {
+      case CSV_EVENT:
+        if (!relay_parse_csv_int_token(field, &parsed.event)) {
+          return false;
+        }
+        break;
+      case CSV_MS:
+        if (!relay_parse_csv_u32_token(field, &parsed.ms)) {
+          return false;
+        }
+        break;
+      case CSV_TEMP_C:
+        if (!relay_parse_csv_float_token(field, &parsed.temp_c)) {
+          return false;
+        }
+        break;
+      case CSV_ADC:
+        if (!relay_parse_csv_int_token(field, &parsed.adc)) {
+          return false;
+        }
+        break;
+      case CSV_DTEMP_C_PER_S:
+        if (!relay_parse_csv_float_token(field, &parsed.dtemp_c_per_s)) {
+          return false;
+        }
+        break;
+      case CSV_SETPOINT_C:
+        if (!relay_parse_csv_float_token(field, &parsed.setpoint_c)) {
+          return false;
+        }
+        break;
+      case CSV_MODE:
+        if (!relay_parse_csv_int_token(field, &parsed.mode)) {
+          return false;
+        }
+        break;
+      case CSV_HEATER_PWM:
+        if (!relay_parse_csv_int_token(field, &parsed.heater_pwm)) {
+          return false;
+        }
+        break;
+      case CSV_HEATING:
+        if (!relay_parse_csv_int_token(field, &parsed.heating)) {
+          return false;
+        }
+        break;
+      case CSV_HEATER_LOCKOUT:
+        if (!relay_parse_csv_int_token(field, &parsed.heater_lockout)) {
+          return false;
+        }
+        break;
+      case CSV_PUMP_ENABLED:
+        if (!relay_parse_csv_int_token(field, &parsed.pump_enabled)) {
+          return false;
+        }
+        break;
+      case CSV_PUMP_ALLOWED:
+        if (!relay_parse_csv_int_token(field, &parsed.pump_allowed)) {
+          return false;
+        }
+        break;
+      case CSV_PUMP_ON:
+        if (!relay_parse_csv_int_token(field, &parsed.pump_on)) {
+          return false;
+        }
+        break;
+      case CSV_MOTOR_PWM:
+        if (!relay_parse_csv_int_token(field, &parsed.motor_pwm)) {
+          return false;
+        }
+        break;
+      case CSV_MOTOR_ON_MS:
+        if (!relay_parse_csv_u32_token(field, &parsed.motor_on_ms)) {
+          return false;
+        }
+        break;
+      case CSV_MOTOR_PERIOD_MS:
+        if (!relay_parse_csv_u32_token(field, &parsed.motor_period_ms)) {
+          return false;
+        }
+        break;
+      case CSV_TEMP_BEFORE_PUMP_C:
+        if (!relay_parse_csv_float_token(field, &parsed.temp_before_pump_c)) {
+          return false;
+        }
+        break;
+      case CSV_MIN_TEMP_AFTER_PUMP_C:
+        if (!relay_parse_csv_float_token(field, &parsed.min_temp_after_pump_c)) {
+          return false;
+        }
+        break;
+      case CSV_LAST_PUMP_DROP_C:
+        if (!relay_parse_csv_float_token(field, &parsed.last_pump_drop_c)) {
+          return false;
+        }
+        break;
+      case CSV_RECOVERY_TIME_S:
+        if (!relay_parse_csv_float_token(field, &parsed.recovery_time_s)) {
+          return false;
+        }
+        break;
+      case CSV_MANUAL_KILL:
+        if (!relay_parse_csv_int_token(field, &parsed.manual_kill)) {
+          return false;
+        }
+        break;
+      case CSV_HARD_KILL:
+        if (!relay_parse_csv_int_token(field, &parsed.hard_kill)) {
+          return false;
+        }
+        break;
+      case CSV_UPTIME_S:
+        if (!relay_parse_csv_u32_token(field, &parsed.uptime_s)) {
+          return false;
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (index < CSV_REQUIRED_FIELDS - 1 && !has_more) {
+      return false;
+    }
+  }
+
+  parsed.have_sample = true;
+  *snapshot = parsed;
+  return true;
+}
+
+void relay_update_arduino_snapshot_from_line(const char *line, relay_arduino_snapshot_t *snapshot) {
+  if (line == NULL || line[0] == '\0' || snapshot == NULL) {
+    return;
+  }
+
+  (void)relay_update_arduino_snapshot_from_csv(line, snapshot);
+}
+
+long relay_extract_long_json(const char *json, const char *key) {
+  char pattern[48];
+  const char *key_pos;
+  const char *colon;
+  char *end_ptr;
+
+  if (json == NULL || key == NULL) {
+    return 0;
+  }
+
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  key_pos = strstr(json, pattern);
+  if (key_pos == NULL) {
+    return 0;
+  }
+
+  colon = strchr(key_pos, ':');
+  if (colon == NULL) {
+    return 0;
+  }
+
+  return strtol(colon + 1, &end_ptr, 10);
+}
+
+bool relay_extract_string_json(const char *json, const char *key, char *out, size_t out_len) {
+  char pattern[48];
+  const char *key_pos;
+  const char *colon;
+  const char *q1;
+  const char *q2;
+  size_t copy_len;
+
+  if (json == NULL || key == NULL || out == NULL || out_len == 0) {
+    return false;
+  }
+
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  key_pos = strstr(json, pattern);
+  if (key_pos == NULL) {
+    out[0] = '\0';
+    return false;
+  }
+
+  colon = strchr(key_pos, ':');
+  if (colon == NULL) {
+    out[0] = '\0';
+    return false;
+  }
+
+  q1 = strchr(colon, '"');
+  if (q1 == NULL) {
+    out[0] = '\0';
+    return false;
+  }
+  q2 = strchr(q1 + 1, '"');
+  if (q2 == NULL) {
+    out[0] = '\0';
+    return false;
+  }
+
+  copy_len = (size_t)(q2 - (q1 + 1));
+  if (copy_len >= out_len) {
+    copy_len = out_len - 1;
+  }
+  memcpy(out, q1 + 1, copy_len);
+  out[copy_len] = '\0';
+  return true;
+}
+
+bool relay_extract_long_json_value(const char *json, const char *key, long *out) {
+  char pattern[48];
+  const char *key_pos;
+  const char *colon;
+  const char *value_start;
+  char *end_ptr;
+
+  if (json == NULL || key == NULL || out == NULL) {
+    return false;
+  }
+
+  snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+  key_pos = strstr(json, pattern);
+  if (key_pos == NULL) {
+    return false;
+  }
+
+  colon = strchr(key_pos, ':');
+  if (colon == NULL) {
+    return false;
+  }
+
+  value_start = colon + 1;
+  while (*value_start != '\0' && isspace((unsigned char)*value_start)) {
+    value_start++;
+  }
+
+  *out = strtol(value_start, &end_ptr, 10);
+  return end_ptr != value_start;
+}
+
+bool relay_parse_direct_method_long_value(const char *payload, long *out) {
+  char payload_copy[RELAY_MAX_IOTHUB_METHOD_PAYLOAD_LEN];
+  const char *cursor;
+  char *end_ptr;
+
+  if (payload == NULL || out == NULL) {
+    return false;
+  }
+
+  relay_copy_cstr(payload_copy, sizeof(payload_copy), payload);
+  relay_trim_inplace(payload_copy);
+  if (payload_copy[0] == '\0') {
+    return false;
+  }
+
+  if (relay_extract_long_json_value(payload_copy, "value", out)) {
+    return true;
+  }
+
+  cursor = payload_copy;
+  *out = strtol(cursor, &end_ptr, 10);
+  if (end_ptr == cursor) {
+    return false;
+  }
+  while (*end_ptr != '\0' && isspace((unsigned char)*end_ptr)) {
+    end_ptr++;
+  }
+  return *end_ptr == '\0';
+}
+
+bool relay_parse_iothub_direct_method_topic(
+    const char *topic,
+    size_t topic_len,
+    char *method_name,
+    size_t method_name_len,
+    char *request_id,
+    size_t request_id_len) {
+  static const char prefix[] = "$iothub/methods/POST/";
+  char topic_copy[RELAY_MAX_IOTHUB_TOPIC_LEN];
+  const char *method_start;
+  const char *method_end;
+  const char *rid_start;
+  const char *rid_end;
+  size_t copy_len;
+
+  if (topic == NULL || method_name == NULL || method_name_len == 0 || request_id == NULL || request_id_len == 0) {
+    return false;
+  }
+
+  if (topic_len == 0 || topic_len >= sizeof(topic_copy)) {
+    return false;
+  }
+
+  memcpy(topic_copy, topic, topic_len);
+  topic_copy[topic_len] = '\0';
+
+  if (strncmp(topic_copy, prefix, strlen(prefix)) != 0) {
+    return false;
+  }
+
+  method_start = topic_copy + strlen(prefix);
+  method_end = strchr(method_start, '/');
+  if (method_end == NULL || method_end == method_start) {
+    return false;
+  }
+
+  copy_len = (size_t)(method_end - method_start);
+  if (copy_len >= method_name_len) {
+    copy_len = method_name_len - 1;
+  }
+  memcpy(method_name, method_start, copy_len);
+  method_name[copy_len] = '\0';
+
+  rid_start = strstr(method_end, "$rid=");
+  if (rid_start == NULL) {
+    return false;
+  }
+  rid_start += 5;
+  rid_end = rid_start;
+  while (*rid_end != '\0' && *rid_end != '&') {
+    rid_end++;
+  }
+  if (rid_end == rid_start) {
+    return false;
+  }
+
+  copy_len = (size_t)(rid_end - rid_start);
+  if (copy_len >= request_id_len) {
+    copy_len = request_id_len - 1;
+  }
+  memcpy(request_id, rid_start, copy_len);
+  request_id[copy_len] = '\0';
+  return true;
+}
