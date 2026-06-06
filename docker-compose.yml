@@ -38,6 +38,7 @@ services:
       MODEL_DIR: /app/models
       CORS_ORIGINS: https://app.scc316.us
       PUBLIC_BASE_URL: https://api.scc316.us
+      API_WRITE_KEY: ${API_WRITE_KEY:-}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: scc-backend

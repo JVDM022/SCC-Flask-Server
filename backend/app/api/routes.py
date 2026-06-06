@@ -13,6 +13,7 @@ from ..services.firmware_ota import record_event, status_summary, upsert_heartbe
 from ..services.mqtt_subscriber import mqtt_status
 from ..services.pump_cycles import extract_pump_cycle_from_event
 from ..services.telemetry_parser import TELEMETRY_COLUMNS, parse_csv_batch
+from .auth import require_api_key
 
 api = Blueprint("api", __name__, url_prefix="/api")
 
@@ -122,6 +123,7 @@ def firmware_response(work):
 
 
 @api.post("/telemetry")
+@require_api_key
 def post_telemetry():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
@@ -145,6 +147,7 @@ def firmware_status():
 
 
 @api.post("/firmware/heartbeat")
+@require_api_key
 def firmware_heartbeat():
     payload, error = firmware_payload()
     if error:
@@ -153,6 +156,7 @@ def firmware_heartbeat():
 
 
 @api.post("/firmware/ota-started")
+@require_api_key
 def firmware_ota_started():
     payload, error = firmware_payload()
     if error:
@@ -161,6 +165,7 @@ def firmware_ota_started():
 
 
 @api.post("/firmware/ota-complete")
+@require_api_key
 def firmware_ota_complete():
     payload, error = firmware_payload()
     if error:
@@ -169,6 +174,7 @@ def firmware_ota_complete():
 
 
 @api.post("/firmware/ota-failed")
+@require_api_key
 def firmware_ota_failed():
     payload, error = firmware_payload()
     if error:
@@ -177,6 +183,7 @@ def firmware_ota_failed():
 
 
 @api.post("/telemetry/csv")
+@require_api_key
 def post_telemetry_csv():
     text = request.get_data(as_text=True)
     if not text and request.is_json:
@@ -260,6 +267,7 @@ def mpc_recommendation():
 
 
 @api.post("/control/setpoint")
+@require_api_key
 def control_setpoint():
     payload = request.get_json(silent=True) or {}
     try:

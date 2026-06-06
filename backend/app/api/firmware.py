@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 
 from ..database.db import db
 from ..database.models import FirmwareArtifact, FirmwareCommand
+from .auth import require_api_key
 
 firmware_api = Blueprint("firmware_api", __name__)
 
@@ -56,6 +57,7 @@ def command_to_response(command: FirmwareCommand) -> dict[str, Any]:
 
 
 @firmware_api.post("/api/firmware/artifacts")
+@require_api_key
 def upload_firmware_artifact():
     # This endpoint should not be exposed publicly without authentication and role checks.
     try:
@@ -129,6 +131,7 @@ def list_firmware_artifacts():
 
 
 @firmware_api.post("/api/firmware/commands")
+@require_api_key
 def create_firmware_command():
     payload = request.get_json(silent=True) or {}
     try:
@@ -202,6 +205,7 @@ def get_next_firmware_command():
 
 
 @firmware_api.post("/api/firmware/commands/<int:cmd_id>/ack")
+@require_api_key
 def ack_firmware_command(cmd_id: int):
     command = db.session.get(FirmwareCommand, cmd_id)
     if command is None:

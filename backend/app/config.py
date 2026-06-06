@@ -18,6 +18,7 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MODEL_DIR = os.getenv("MODEL_DIR", str(BASE_DIR.parent / "models"))
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+    API_WRITE_KEY = os.getenv("API_WRITE_KEY", "")
     FIRMWARE_SOURCE_DIR = os.getenv("FIRMWARE_SOURCE_DIR", "/app/firmware")
     FIRMWARE_PLATFORMIO_ENV = os.getenv("FIRMWARE_PLATFORMIO_ENV", "esp32doit-devkit-v1")
     FIRMWARE_OTA_PORT = os.getenv("FIRMWARE_OTA_PORT", "")
