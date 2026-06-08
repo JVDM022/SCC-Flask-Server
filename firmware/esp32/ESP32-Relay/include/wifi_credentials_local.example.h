@@ -4,11 +4,15 @@
 #define EAP_IDENTITY ""
 #define EAP_USERNAME ""
 #define EAP_PASSWORD ""
-#define TELEMETRY_URL "http://localhost:5000/api/telemetry"
-#define COMMAND_URL "http://localhost:5000/api/command"
+#define MQTT_BROKER_URI "mqtt://YOUR_COMPUTER_LAN_IP:1883"
+#define MQTT_BASE_TOPIC "scc"
+#define MQTT_SITE_ID "site-01"
+#define MQTT_RIG_ID "rig-01"
+#define MQTT_DEVICE_ID "esp32-relay-01"
+#define MQTT_USERNAME ""
+#define MQTT_PASSWORD ""
+#define COMMAND_URL "http://YOUR_COMPUTER_LAN_IP:5000/api/firmware/commands/next?device=esp32"
 #define OTA_FIRMWARE_URL ""
-#define IOTHUB_DEVICE_CONNECTION_STRING ""
-#define NTP_SERVER "pool.ntp.org"
 
 // Arduino-over-UART OTA scaffolding. This does not flash yet; STK500v1/Optiboot support is required first.
 #define ARDUINO_OTA_ENABLED 0

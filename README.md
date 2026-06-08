@@ -5,12 +5,12 @@ A small SCADA-like research control platform for a thermal SCC/corrosion test ri
 ## Architecture
 
 ```text
-Arduino SCC controller -> ESP32 relay -> Flask API -> PostgreSQL
-                                           |-> alarms and events
-                                           |-> pump-cycle extraction
-                                           |-> ML prediction
-                                           |-> advisory MPC
-                                           |-> React HMI dashboard
+Arduino SCC controller -> ESP32 relay -> Mosquitto MQTT -> Flask subscriber -> PostgreSQL
+                                                              |-> alarms and events
+                                                              |-> pump-cycle extraction
+                                                              |-> ML prediction
+                                                              |-> advisory MPC
+                                                              |-> React HMI dashboard
 ```
 
 ## Linux/macOS Setup
@@ -56,10 +56,18 @@ npm install
 npm run dev
 ```
 
+## Live Telemetry
+
+Live ESP32 telemetry is MQTT-only. Devices publish JSON to:
+
+```text
+scc/site/<site_id>/rig/<rig_id>/device/<device_id>/telemetry
+```
+
+The Flask backend subscribes to Mosquitto, parses MQTT payloads, stores telemetry, and derives alarms, pump-cycle records, ML predictions, and MPC recommendations.
+
 ## API Endpoints
 
-- `POST /api/telemetry`: accept JSON telemetry, validate, store, and run alarm checks.
-- `POST /api/telemetry/csv`: accept one CSV line or CSV batch from ESP32.
 - `GET /api/latest`: latest telemetry row.
 - `GET /api/history?minutes=60`: telemetry history for plotting.
 - `GET /api/events?limit=100`: pump and hard-kill events.
@@ -68,10 +76,12 @@ npm run dev
 - `GET /api/ml/prediction`: predicted temperatures for +1s, +5s, and +10s when models exist.
 - `GET /api/mpc/recommendation`: advisory heater PWM recommendation.
 - `POST /api/control/setpoint`: store a desired setpoint command.
+- `POST /api/telemetry`: development/manual JSON telemetry ingest, not the live ESP32 path.
+- `POST /api/telemetry/csv`: development/manual CSV import, not the live ESP32 path.
 
 ## Telemetry Format
 
-The backend accepts ESP32 CSV with or without a header. Headerless rows are parsed using this exact order:
+Live MQTT telemetry is JSON. The development CSV import endpoint accepts CSV with or without a header. Headerless rows are parsed using this exact order:
 
 ```text
 event,ms,temp_c,adc,dtemp_c_per_s,setpoint_c,mode,heater_pwm,heating,heater_lockout,pump_enabled,pump_allowed,pump_on,motor_pwm,motor_on_ms,motor_period_ms,temp_before_pump_c,min_temp_after_pump_c,last_pump_drop_c,recovery_time_s,manual_kill,hard_kill,uptime_s

@@ -4,8 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
-#include <time.h>
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_crt_bundle.h"
@@ -15,16 +13,12 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_netif.h"
-#include "esp_netif_sntp.h"
-#include "esp_sntp.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "mbedtls/base64.h"
-#include "mbedtls/md.h"
 #include "mqtt_client.h"
 #include "nvs_flash.h"
 #include "relay_core.h"
@@ -50,9 +44,6 @@
 #define WIFI_RETRY_DELAY_MS 10000U
 #endif
 
-#ifndef TELEMETRY_URL
-#define TELEMETRY_URL ""
-#endif
 #ifndef COMMAND_URL
 #define COMMAND_URL ""
 #endif
@@ -62,38 +53,35 @@
 #ifndef OTA_CHECK_ON_BOOT
 #define OTA_CHECK_ON_BOOT 0
 #endif
-#ifndef IOTHUB_DEVICE_CONNECTION_STRING
-#define IOTHUB_DEVICE_CONNECTION_STRING ""
+#ifndef MQTT_BROKER_URI
+#define MQTT_BROKER_URI ""
 #endif
-#ifndef IOTHUB_API_VERSION
-#define IOTHUB_API_VERSION "2021-04-12"
+#ifndef MQTT_BASE_TOPIC
+#define MQTT_BASE_TOPIC "scc"
 #endif
-#ifndef IOTHUB_MQTT_TELEMETRY_QOS
-#define IOTHUB_MQTT_TELEMETRY_QOS 0
+#ifndef MQTT_SITE_ID
+#define MQTT_SITE_ID "site-01"
 #endif
-#ifndef IOTHUB_MQTT_COMMAND_QOS
-#define IOTHUB_MQTT_COMMAND_QOS 1
+#ifndef MQTT_RIG_ID
+#define MQTT_RIG_ID "rig-01"
 #endif
-#ifndef IOTHUB_SAS_TOKEN_LIFETIME_SEC
-#define IOTHUB_SAS_TOKEN_LIFETIME_SEC 86400
+#ifndef MQTT_DEVICE_ID
+#define MQTT_DEVICE_ID "esp32-relay-01"
 #endif
-#ifndef IOTHUB_SAS_TOKEN_RENEW_BEFORE_SEC
-#define IOTHUB_SAS_TOKEN_RENEW_BEFORE_SEC 300
+#ifndef MQTT_USERNAME
+#define MQTT_USERNAME ""
 #endif
-#ifndef IOTHUB_MQTT_KEEPALIVE_SEC
-#define IOTHUB_MQTT_KEEPALIVE_SEC 120
+#ifndef MQTT_PASSWORD
+#define MQTT_PASSWORD ""
 #endif
-#ifndef IOTHUB_MQTT_RECYCLE_AFTER_MS
-#define IOTHUB_MQTT_RECYCLE_AFTER_MS 30000U
+#ifndef MQTT_TELEMETRY_QOS
+#define MQTT_TELEMETRY_QOS 1
 #endif
-#ifndef IOTHUB_MQTT_USE_WEBSOCKETS
-#define IOTHUB_MQTT_USE_WEBSOCKETS 1
+#ifndef MQTT_KEEPALIVE_SEC
+#define MQTT_KEEPALIVE_SEC 120
 #endif
-#ifndef IOTHUB_MQTT_WS_PATH
-#define IOTHUB_MQTT_WS_PATH "/$iothub/websocket"
-#endif
-#ifndef NTP_SERVER
-#define NTP_SERVER "pool.ntp.org"
+#ifndef MQTT_RECYCLE_AFTER_MS
+#define MQTT_RECYCLE_AFTER_MS 30000U
 #endif
 #ifndef ARDUINO_OTA_ENABLED
 #define ARDUINO_OTA_ENABLED 0
@@ -122,17 +110,7 @@
 #define MAX_CMD_TYPE_LEN 24
 #define MAX_OTA_URL_LEN 320
 #define MAX_ARDUINO_OTA_URL_LEN ARDUINO_OTA_MAX_URL_LEN
-#define MAX_IOTHUB_HOST_LEN 128
-#define MAX_IOTHUB_DEVICE_ID_LEN 128
-#define MAX_IOTHUB_KEY_LEN 128
-#define MAX_IOTHUB_URI_LEN 160
-#define MAX_IOTHUB_USERNAME_LEN 320
-#define MAX_IOTHUB_PASSWORD_LEN 512
-#define MAX_IOTHUB_TOPIC_LEN 160
-#define MAX_IOTHUB_METHOD_NAME_LEN 32
-#define MAX_IOTHUB_REQUEST_ID_LEN 96
-#define MAX_IOTHUB_METHOD_PAYLOAD_LEN 192
-#define IOTHUB_DIRECT_METHOD_SUB_TOPIC "$iothub/methods/POST/#"
+#define MAX_MQTT_TOPIC_LEN 192
 #define WIFI_CONNECTED_BIT BIT0
 #define RELAY_TASK_STACK_SIZE 8192
 #define RELAY_TASK_PRIORITY 5
@@ -159,23 +137,13 @@ static bool s_wifi_connecting = false;
 static char s_last_arduino_line[MAX_ARDUINO_LINE_LEN] = "";
 static long s_last_cmd_id_seen = -1;
 static char s_http_get_response[MAX_HTTP_RESPONSE_LEN];
-static char s_http_post_response[256];
 static char s_telemetry_payload[768];
 static char s_cmd_type[MAX_CMD_TYPE_LEN];
 static char s_ota_url[MAX_OTA_URL_LEN];
 static char s_arduino_ota_url[MAX_ARDUINO_OTA_URL_LEN];
 static char s_cmd_line[48];
-static char s_iothub_host[MAX_IOTHUB_HOST_LEN];
-static char s_iothub_device_id[MAX_IOTHUB_DEVICE_ID_LEN];
-static char s_iothub_shared_key[MAX_IOTHUB_KEY_LEN];
-static char s_iothub_uri[MAX_IOTHUB_URI_LEN];
-static char s_iothub_username[MAX_IOTHUB_USERNAME_LEN];
-static char s_iothub_password[MAX_IOTHUB_PASSWORD_LEN];
-static char s_iothub_publish_topic[MAX_IOTHUB_TOPIC_LEN];
-static bool s_iothub_checked = false;
-static bool s_iothub_configured = false;
+static char s_mqtt_telemetry_topic[MAX_MQTT_TOPIC_LEN];
 static bool s_mqtt_connected = false;
-static bool s_sntp_initialized = false;
 static bool s_arduino_ota_in_progress = false;
 static uint32_t s_uart_rx_bytes = 0;
 static uint32_t s_uart_rx_lines = 0;
@@ -183,7 +151,6 @@ static uint32_t s_last_uart_rx_log_ms = 0;
 static uint32_t s_wifi_connect_started_ms = 0;
 static uint32_t s_last_mqtt_disconnect_ms = 0;
 static relay_arduino_snapshot_t s_arduino_snapshot = {0};
-static time_t s_iothub_token_expiry = 0;
 static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 
 static uint32_t now_ms(void) {
@@ -304,172 +271,26 @@ static const char *arduino_ota_start_result_name(arduino_ota_start_result_t resu
   }
 }
 
-static bool parse_iothub_connection_string(void) {
-  if (s_iothub_checked) {
-    return s_iothub_configured;
-  }
-
-  s_iothub_checked = true;
-  s_iothub_configured = false;
-  s_iothub_host[0] = '\0';
-  s_iothub_device_id[0] = '\0';
-  s_iothub_shared_key[0] = '\0';
-  s_iothub_uri[0] = '\0';
-  s_iothub_username[0] = '\0';
-  s_iothub_publish_topic[0] = '\0';
-
-  if (IOTHUB_DEVICE_CONNECTION_STRING[0] == '\0') {
-    return false;
-  }
-
-  if (!relay_extract_conn_string_value(IOTHUB_DEVICE_CONNECTION_STRING, "HostName", s_iothub_host, sizeof(s_iothub_host)) ||
-      !relay_extract_conn_string_value(IOTHUB_DEVICE_CONNECTION_STRING, "DeviceId", s_iothub_device_id, sizeof(s_iothub_device_id)) ||
-      !relay_extract_conn_string_value(IOTHUB_DEVICE_CONNECTION_STRING, "SharedAccessKey", s_iothub_shared_key, sizeof(s_iothub_shared_key))) {
-    ESP_LOGE(TAG, "Invalid IoT Hub device connection string");
-    return false;
-  }
-
-  relay_copy_lower_ascii(s_iothub_host, sizeof(s_iothub_host), s_iothub_host);
-
-#if IOTHUB_MQTT_USE_WEBSOCKETS
-  snprintf(s_iothub_uri, sizeof(s_iothub_uri), "wss://%s:443%s", s_iothub_host, IOTHUB_MQTT_WS_PATH);
-#else
-  snprintf(s_iothub_uri, sizeof(s_iothub_uri), "mqtts://%s:8883", s_iothub_host);
-#endif
-  snprintf(
-      s_iothub_username,
-      sizeof(s_iothub_username),
-      "%s/%s/?api-version=%s",
-      s_iothub_host,
-      s_iothub_device_id,
-      IOTHUB_API_VERSION);
-  snprintf(
-      s_iothub_publish_topic,
-      sizeof(s_iothub_publish_topic),
-      "devices/%s/messages/events/",
-      s_iothub_device_id);
-
-  s_iothub_configured = true;
-  ESP_LOGI(TAG, "IoT Hub MQTT configured for device %s over %s", s_iothub_device_id,
-#if IOTHUB_MQTT_USE_WEBSOCKETS
-           "WSS/443"
-#else
-           "MQTTS/8883"
-#endif
-  );
-  return true;
+static bool mqtt_is_configured(void) {
+  return MQTT_BROKER_URI[0] != '\0';
 }
 
-static bool system_time_is_valid(void) {
-  time_t now = time(NULL);
-  return now >= 1704067200;
-}
+static bool build_mqtt_telemetry_topic(void) {
+  int written = snprintf(
+      s_mqtt_telemetry_topic,
+      sizeof(s_mqtt_telemetry_topic),
+      "%s/site/%s/rig/%s/device/%s/telemetry",
+      MQTT_BASE_TOPIC,
+      MQTT_SITE_ID,
+      MQTT_RIG_ID,
+      MQTT_DEVICE_ID);
 
-static bool ensure_system_time(void) {
-  int retry = 0;
-
-  if (system_time_is_valid()) {
-    return true;
-  }
-  if (!s_wifi_connected) {
+  if (written < 0 || (size_t)written >= sizeof(s_mqtt_telemetry_topic)) {
+    s_mqtt_telemetry_topic[0] = '\0';
+    ESP_LOGE(TAG, "MQTT telemetry topic is too long");
     return false;
   }
 
-  if (!s_sntp_initialized) {
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG(NTP_SERVER);
-    esp_err_t err = esp_netif_sntp_init(&config);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "SNTP init failed: %s", esp_err_to_name(err));
-      return false;
-    }
-    s_sntp_initialized = true;
-    ESP_LOGI(TAG, "SNTP started with server %s", NTP_SERVER);
-  }
-
-  for (retry = 0; retry < 10; retry++) {
-    if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(2000)) == ESP_OK && system_time_is_valid()) {
-      time_t now = time(NULL);
-      ESP_LOGI(TAG, "System time synchronized: %lld", (long long)now);
-      return true;
-    }
-    ESP_LOGI(TAG, "Waiting for system time sync... (%d/10)", retry + 1);
-  }
-
-  ESP_LOGW(TAG, "System time is still not valid after SNTP wait");
-  return system_time_is_valid();
-}
-
-static bool build_iothub_sas_token(char *out, size_t out_len, time_t *expiry_out) {
-  char resource_uri[320];
-  char encoded_resource_uri[512];
-  char string_to_sign[640];
-  char encoded_signature[256];
-  unsigned char decoded_key[96];
-  unsigned char signature[32];
-  unsigned char base64_signature[128];
-  size_t decoded_key_len = 0;
-  size_t base64_signature_len = 0;
-  const mbedtls_md_info_t *md_info;
-  time_t expiry;
-  int rc;
-
-  if (out == NULL || out_len == 0 || !parse_iothub_connection_string() || !ensure_system_time()) {
-    return false;
-  }
-
-  snprintf(resource_uri, sizeof(resource_uri), "%s/devices/%s", s_iothub_host, s_iothub_device_id);
-  if (!relay_url_encode(resource_uri, encoded_resource_uri, sizeof(encoded_resource_uri))) {
-    ESP_LOGE(TAG, "Failed to URL-encode IoT Hub resource URI");
-    return false;
-  }
-
-  rc = mbedtls_base64_decode(decoded_key, sizeof(decoded_key), &decoded_key_len,
-                             (const unsigned char *)s_iothub_shared_key, strlen(s_iothub_shared_key));
-  if (rc != 0) {
-    ESP_LOGE(TAG, "Failed to decode IoT Hub device key: -0x%04x", -rc);
-    return false;
-  }
-
-  expiry = time(NULL) + IOTHUB_SAS_TOKEN_LIFETIME_SEC;
-  snprintf(string_to_sign, sizeof(string_to_sign), "%s\n%lld", encoded_resource_uri, (long long)expiry);
-
-  md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  if (md_info == NULL) {
-    ESP_LOGE(TAG, "Failed to get SHA256 provider for SAS token");
-    return false;
-  }
-
-  rc = mbedtls_md_hmac(md_info, decoded_key, decoded_key_len,
-                       (const unsigned char *)string_to_sign, strlen(string_to_sign), signature);
-  if (rc != 0) {
-    ESP_LOGE(TAG, "Failed to sign SAS token: -0x%04x", -rc);
-    return false;
-  }
-
-  rc = mbedtls_base64_encode(base64_signature, sizeof(base64_signature), &base64_signature_len,
-                             signature, sizeof(signature));
-  if (rc != 0) {
-    ESP_LOGE(TAG, "Failed to base64-encode SAS signature: -0x%04x", -rc);
-    return false;
-  }
-  base64_signature[base64_signature_len] = '\0';
-
-  if (!relay_url_encode((const char *)base64_signature, encoded_signature, sizeof(encoded_signature))) {
-    ESP_LOGE(TAG, "Failed to URL-encode SAS signature");
-    return false;
-  }
-
-  snprintf(
-      out,
-      out_len,
-      "SharedAccessSignature sr=%s&sig=%s&se=%lld",
-      encoded_resource_uri,
-      encoded_signature,
-      (long long)expiry);
-
-  if (expiry_out != NULL) {
-    *expiry_out = expiry;
-  }
   return true;
 }
 
@@ -497,52 +318,6 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
   }
 
   return ESP_OK;
-}
-
-static bool https_post_json(const char *url, const char *json_body) {
-  s_http_post_response[0] = '\0';
-  http_response_buffer_t response_buf = {
-      .buffer = s_http_post_response,
-      .max_len = sizeof(s_http_post_response),
-      .len = 0,
-  };
-  esp_http_client_config_t config;
-  esp_http_client_handle_t client;
-  esp_err_t err;
-  int status_code;
-
-  if (!s_wifi_connected || url == NULL || url[0] == '\0' || json_body == NULL) {
-    return false;
-  }
-
-  memset(&config, 0, sizeof(config));
-  config.url = url;
-  config.method = HTTP_METHOD_POST;
-  config.timeout_ms = 10000;
-  config.event_handler = http_event_handler;
-  config.user_data = &response_buf;
-  config.crt_bundle_attach = esp_crt_bundle_attach;
-
-  client = esp_http_client_init(&config);
-  if (client == NULL) {
-    ESP_LOGE(TAG, "POST init failed");
-    return false;
-  }
-
-  esp_http_client_set_header(client, "Content-Type", "application/json");
-  esp_http_client_set_post_field(client, json_body, (int)strlen(json_body));
-
-  err = esp_http_client_perform(client);
-  status_code = esp_http_client_get_status_code(client);
-  esp_http_client_cleanup(client);
-
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "POST %s failed: %s", url, esp_err_to_name(err));
-    return false;
-  }
-
-  ESP_LOGI(TAG, "POST %s -> %d | %s", url, status_code, s_http_post_response);
-  return (status_code >= 200 && status_code < 300);
 }
 
 static bool https_get(const char *url, char *out_response, size_t out_len) {
@@ -606,100 +381,6 @@ static void send_to_arduino(const char *cmd_line) {
   ESP_LOGI(TAG, "-> Arduino: %s", cmd_line);
 }
 
-static void publish_iothub_method_response(const char *request_id, int status_code, const char *payload) {
-  char topic[MAX_IOTHUB_TOPIC_LEN];
-  const char *response_payload = payload != NULL ? payload : "{}";
-  int msg_id;
-
-  if (request_id == NULL || request_id[0] == '\0' || s_mqtt_client == NULL || !s_mqtt_connected) {
-    return;
-  }
-
-  snprintf(topic, sizeof(topic), "$iothub/methods/res/%d/?$rid=%s", status_code, request_id);
-  msg_id = esp_mqtt_client_publish(s_mqtt_client, topic, response_payload, 0, IOTHUB_MQTT_COMMAND_QOS, 0);
-  if (msg_id < 0) {
-    ESP_LOGW(TAG, "Failed to publish direct method response for rid=%s", request_id);
-    return;
-  }
-
-  ESP_LOGI(TAG, "Direct method response queued: rid=%s status=%d msg_id=%d", request_id, status_code, msg_id);
-}
-
-static void handle_iothub_direct_method(esp_mqtt_event_handle_t event) {
-  char method_name[MAX_IOTHUB_METHOD_NAME_LEN];
-  char request_id[MAX_IOTHUB_REQUEST_ID_LEN];
-  char payload[MAX_IOTHUB_METHOD_PAYLOAD_LEN];
-  char response[96];
-  long value;
-  long normalized_value;
-  size_t copy_len = 0;
-  relay_backend_command_type_t command_type;
-  arduino_ota_start_result_t arduino_ota_result;
-
-  if (event == NULL || event->topic == NULL || event->topic_len <= 0) {
-    return;
-  }
-
-  if (!relay_parse_iothub_direct_method_topic(
-          event->topic,
-          (size_t)event->topic_len,
-          method_name,
-          sizeof(method_name),
-          request_id,
-          sizeof(request_id))) {
-    return;
-  }
-
-  if (event->data != NULL && event->data_len > 0) {
-    copy_len = (size_t)event->data_len;
-    if (copy_len >= sizeof(payload)) {
-      copy_len = sizeof(payload) - 1;
-    }
-    memcpy(payload, event->data, copy_len);
-  }
-  payload[copy_len] = '\0';
-  relay_trim_inplace(payload);
-
-  ESP_LOGI(TAG, "IoT Hub direct method received: %s payload=%s", method_name, payload[0] != '\0' ? payload : "{}");
-
-  if (!relay_parse_backend_command_type(method_name, &command_type) ||
-      (command_type != RELAY_BACKEND_COMMAND_KILL && command_type != RELAY_BACKEND_COMMAND_ARDUINO_OTA)) {
-    snprintf(response, sizeof(response), "{\"ok\":false,\"error\":\"unsupported method\"}");
-    publish_iothub_method_response(request_id, 404, response);
-    return;
-  }
-
-  if (command_type == RELAY_BACKEND_COMMAND_ARDUINO_OTA) {
-    s_arduino_ota_url[0] = '\0';
-    (void)relay_extract_string_json(payload, "url", s_arduino_ota_url, sizeof(s_arduino_ota_url));
-    arduino_ota_result = prepare_arduino_ota(s_arduino_ota_url);
-    snprintf(
-        response,
-        sizeof(response),
-        "{\"ok\":%s,\"status\":\"%s\"}",
-        arduino_ota_result == ARDUINO_OTA_START_PREPARED ? "true" : "false",
-        arduino_ota_start_result_name(arduino_ota_result));
-    publish_iothub_method_response(
-        request_id,
-        arduino_ota_result == ARDUINO_OTA_START_PREPARED ? 202 : 400,
-        response);
-    return;
-  }
-
-  if (!relay_parse_direct_method_long_value(payload, &value)) {
-    snprintf(response, sizeof(response), "{\"ok\":false,\"error\":\"missing integer value\"}");
-    publish_iothub_method_response(request_id, 400, response);
-    return;
-  }
-
-  normalized_value = value != 0 ? 1L : 0L;
-  snprintf(s_cmd_line, sizeof(s_cmd_line), "KILL %ld", normalized_value);
-  send_to_arduino(s_cmd_line);
-
-  snprintf(response, sizeof(response), "{\"ok\":true,\"value\":%ld}", normalized_value);
-  publish_iothub_method_response(request_id, 200, response);
-}
-
 static void read_arduino_lines(void) {
   uint8_t data[64];
   int bytes_read = uart_read_bytes(UART_PORT, data, sizeof(data), pdMS_TO_TICKS(10));
@@ -752,7 +433,6 @@ static void read_arduino_lines(void) {
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
   esp_mqtt_event_handle_t event = event_data;
   esp_mqtt_client_handle_t event_client = event != NULL ? event->client : NULL;
-  int msg_id;
 
   (void)handler_args;
   (void)base;
@@ -765,26 +445,20 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_CONNECTED:
       s_mqtt_connected = true;
       s_last_mqtt_disconnect_ms = 0;
-      ESP_LOGI(TAG, "IoT Hub MQTT connected");
-      msg_id = esp_mqtt_client_subscribe(s_mqtt_client, IOTHUB_DIRECT_METHOD_SUB_TOPIC, IOTHUB_MQTT_COMMAND_QOS);
-      if (msg_id < 0) {
-        ESP_LOGW(TAG, "Failed to subscribe to IoT Hub direct methods");
-      } else {
-        ESP_LOGI(TAG, "Subscribed to IoT Hub direct methods: msg_id=%d", msg_id);
-      }
+      ESP_LOGI(TAG, "Local MQTT connected");
       break;
     case MQTT_EVENT_DATA:
-      handle_iothub_direct_method(event);
+      ESP_LOGD(TAG, "MQTT data received on an unexpected subscription");
       break;
     case MQTT_EVENT_DISCONNECTED:
       s_mqtt_connected = false;
       s_last_mqtt_disconnect_ms = now_ms();
-      ESP_LOGW(TAG, "IoT Hub MQTT disconnected");
+      ESP_LOGW(TAG, "Local MQTT disconnected");
       break;
     case MQTT_EVENT_ERROR:
       s_mqtt_connected = false;
       s_last_mqtt_disconnect_ms = now_ms();
-      ESP_LOGW(TAG, "IoT Hub MQTT error");
+      ESP_LOGW(TAG, "Local MQTT error");
       if (event != NULL && event->error_handle != NULL) {
         if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
           ESP_LOGW(TAG, "MQTT connection refused: %d", event->error_handle->connect_return_code);
@@ -799,7 +473,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
   }
 }
 
-static void stop_iothub_mqtt_client(void) {
+static void stop_mqtt_client(void) {
   esp_mqtt_client_handle_t client = s_mqtt_client;
 
   if (s_mqtt_client == NULL) {
@@ -813,19 +487,20 @@ static void stop_iothub_mqtt_client(void) {
   esp_mqtt_client_destroy(client);
 }
 
-static bool start_iothub_mqtt_client(void) {
+static bool start_mqtt_client(void) {
   esp_mqtt_client_config_t mqtt_cfg = {0};
 
-  if (!build_iothub_sas_token(s_iothub_password, sizeof(s_iothub_password), &s_iothub_token_expiry)) {
+  if (!mqtt_is_configured() || !build_mqtt_telemetry_topic()) {
     return false;
   }
 
-  mqtt_cfg.broker.address.uri = s_iothub_uri;
-  mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
-  mqtt_cfg.credentials.username = s_iothub_username;
-  mqtt_cfg.credentials.client_id = s_iothub_device_id;
-  mqtt_cfg.credentials.authentication.password = s_iothub_password;
-  mqtt_cfg.session.keepalive = IOTHUB_MQTT_KEEPALIVE_SEC;
+  mqtt_cfg.broker.address.uri = MQTT_BROKER_URI;
+  mqtt_cfg.credentials.client_id = MQTT_DEVICE_ID;
+  if (MQTT_USERNAME[0] != '\0') {
+    mqtt_cfg.credentials.username = MQTT_USERNAME;
+    mqtt_cfg.credentials.authentication.password = MQTT_PASSWORD;
+  }
+  mqtt_cfg.session.keepalive = MQTT_KEEPALIVE_SEC;
   mqtt_cfg.session.disable_clean_session = false;
   mqtt_cfg.session.protocol_ver = MQTT_PROTOCOL_V_3_1_1;
   mqtt_cfg.network.timeout_ms = 10000;
@@ -837,13 +512,13 @@ static bool start_iothub_mqtt_client(void) {
 
   s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
   if (s_mqtt_client == NULL) {
-    ESP_LOGE(TAG, "Failed to create IoT Hub MQTT client");
+    ESP_LOGE(TAG, "Failed to create local MQTT client");
     return false;
   }
 
   esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
   if (esp_mqtt_client_start(s_mqtt_client) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start IoT Hub MQTT client");
+    ESP_LOGE(TAG, "Failed to start local MQTT client");
     esp_mqtt_client_destroy(s_mqtt_client);
     s_mqtt_client = NULL;
     return false;
@@ -851,45 +526,33 @@ static bool start_iothub_mqtt_client(void) {
 
   s_mqtt_connected = false;
   s_last_mqtt_disconnect_ms = now_ms();
-  ESP_LOGI(TAG, "Starting IoT Hub MQTT client for %s", s_iothub_device_id);
+  ESP_LOGI(TAG, "Starting local MQTT client: broker=%s topic=%s", MQTT_BROKER_URI, s_mqtt_telemetry_topic);
   return true;
 }
 
-static bool ensure_iothub_mqtt_client(void) {
-  time_t now;
-
-  if (!parse_iothub_connection_string()) {
+static bool ensure_mqtt_client(void) {
+  if (!mqtt_is_configured()) {
     return false;
   }
   if (!s_wifi_connected) {
     if (s_mqtt_client != NULL) {
-      stop_iothub_mqtt_client();
+      stop_mqtt_client();
     }
     return false;
   }
-  if (!ensure_system_time()) {
-    return false;
-  }
-
-  now = time(NULL);
-  if (s_mqtt_client != NULL && s_iothub_token_expiry > 0 &&
-      now >= (s_iothub_token_expiry - IOTHUB_SAS_TOKEN_RENEW_BEFORE_SEC)) {
-    ESP_LOGI(TAG, "Refreshing IoT Hub MQTT SAS token");
-    stop_iothub_mqtt_client();
-  }
 
   if (s_mqtt_client == NULL) {
-    return start_iothub_mqtt_client();
+    return start_mqtt_client();
   }
 
   if (!s_mqtt_connected && s_last_mqtt_disconnect_ms != 0U) {
     uint32_t disconnected_for_ms = now_ms() - s_last_mqtt_disconnect_ms;
 
-    if (disconnected_for_ms >= IOTHUB_MQTT_RECYCLE_AFTER_MS) {
-      ESP_LOGW(TAG, "IoT Hub MQTT still disconnected after %lu ms. Recycling client.",
+    if (disconnected_for_ms >= MQTT_RECYCLE_AFTER_MS) {
+      ESP_LOGW(TAG, "Local MQTT still disconnected after %lu ms. Recycling client.",
                (unsigned long)disconnected_for_ms);
-      stop_iothub_mqtt_client();
-      return start_iothub_mqtt_client();
+      stop_mqtt_client();
+      return start_mqtt_client();
     }
   }
 
@@ -902,17 +565,17 @@ static bool publish_telemetry_mqtt(const char *payload) {
   if (payload == NULL || payload[0] == '\0') {
     return false;
   }
-  if (!ensure_iothub_mqtt_client() || !s_mqtt_connected) {
+  if (!ensure_mqtt_client() || !s_mqtt_connected) {
     return false;
   }
 
-  msg_id = esp_mqtt_client_publish(s_mqtt_client, s_iothub_publish_topic, payload, 0, IOTHUB_MQTT_TELEMETRY_QOS, 0);
+  msg_id = esp_mqtt_client_publish(s_mqtt_client, s_mqtt_telemetry_topic, payload, 0, MQTT_TELEMETRY_QOS, 0);
   if (msg_id < 0) {
-    ESP_LOGW(TAG, "Failed to queue IoT Hub telemetry publish");
+    ESP_LOGW(TAG, "Failed to queue local MQTT telemetry publish");
     return false;
   }
 
-  ESP_LOGI(TAG, "IoT Hub telemetry queued: msg_id=%d", msg_id);
+  ESP_LOGI(TAG, "Local MQTT telemetry queued: topic=%s msg_id=%d", s_mqtt_telemetry_topic, msg_id);
   return true;
 }
 
@@ -962,7 +625,7 @@ static void post_telemetry(void) {
       (unsigned long)ts);
 
   ESP_LOGI(TAG, "Telemetry payload: %s", s_telemetry_payload);
-  if (IOTHUB_DEVICE_CONNECTION_STRING[0] != '\0') {
+  if (mqtt_is_configured()) {
     if (!s_wifi_connected) {
       ESP_LOGI(TAG, "Telemetry deferred: waiting for WiFi/IP");
     } else {
@@ -970,17 +633,15 @@ static void post_telemetry(void) {
     }
     if (!telemetry_sent && s_wifi_connected) {
       if (!s_mqtt_connected) {
-        ESP_LOGI(TAG, "Telemetry deferred: waiting for IoT Hub MQTT connection");
+        ESP_LOGI(TAG, "Telemetry deferred: waiting for local MQTT connection");
       } else {
-        ESP_LOGW(TAG, "IoT Hub telemetry publish did not complete");
+        ESP_LOGW(TAG, "Local MQTT telemetry publish did not complete");
       }
     }
-  } else if (TELEMETRY_URL[0] != '\0') {
-    telemetry_sent = https_post_json(TELEMETRY_URL, s_telemetry_payload);
   }
 
-  if (!telemetry_sent && IOTHUB_DEVICE_CONNECTION_STRING[0] == '\0' && TELEMETRY_URL[0] == '\0') {
-    ESP_LOGW(TAG, "Telemetry skipped: no upstream transport configured");
+  if (!telemetry_sent && !mqtt_is_configured()) {
+    ESP_LOGW(TAG, "Telemetry skipped: MQTT_BROKER_URI is not configured");
   }
 }
 
@@ -1200,7 +861,7 @@ static void relay_task(void *arg) {
     uint32_t now = now_ms();
 
     if (!s_wifi_connected && s_mqtt_client != NULL) {
-      stop_iothub_mqtt_client();
+      stop_mqtt_client();
     }
 
     if (!s_wifi_connected && !s_wifi_connecting && (now - last_wifi_retry_ms) >= WIFI_RETRY_DELAY_MS) {
@@ -1220,28 +881,21 @@ static void relay_task(void *arg) {
 
     if ((now - last_mqtt_service_ms) >= 1000U) {
       last_mqtt_service_ms = now;
-      if (IOTHUB_DEVICE_CONNECTION_STRING[0] != '\0') {
-        ensure_iothub_mqtt_client();
+      if (mqtt_is_configured()) {
+        ensure_mqtt_client();
       }
     }
 
     if ((now - last_telemetry_ms) >= TELEMETRY_PERIOD_MS) {
       last_telemetry_ms = now;
-      if (IOTHUB_DEVICE_CONNECTION_STRING[0] != '\0') {
-        if (s_wifi_connected) {
-          ensure_iothub_mqtt_client();
-        }
-        if (s_wifi_connected && s_mqtt_connected) {
-          post_telemetry();
-        }
-      } else if (!s_wifi_connected && TELEMETRY_URL[0] != '\0') {
-        // Keep consuming UART locally, but wait for WiFi/IP before attempting HTTPS telemetry.
+      if (!s_wifi_connected && mqtt_is_configured()) {
+        // Keep consuming UART locally, but wait for WiFi/IP before attempting upstream telemetry.
       } else {
         post_telemetry();
       }
     }
 
-    if (IOTHUB_DEVICE_CONNECTION_STRING[0] == '\0' && (now - last_command_poll_ms) >= COMMAND_PERIOD_MS) {
+    if ((now - last_command_poll_ms) >= COMMAND_PERIOD_MS) {
       last_command_poll_ms = now;
       poll_command_and_forward();
     }
@@ -1268,7 +922,7 @@ void app_main(void) {
     perform_ota_update(OTA_FIRMWARE_URL);
   }
 
-  ESP_LOGI(TAG, "Ready: UART telemetry bridge + IoT Hub MQTT telemetry/direct methods + OTA");
+  ESP_LOGI(TAG, "Ready: UART telemetry bridge + local MQTT telemetry + HTTP commands + OTA");
 
   xTaskCreatePinnedToCore(relay_task, "relay_task", RELAY_TASK_STACK_SIZE, NULL, RELAY_TASK_PRIORITY, NULL, 1);
 }

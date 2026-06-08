@@ -1,6 +1,28 @@
 # ESP32 Relay Firmware
 
-This firmware bridges UART telemetry from an Arduino-class controller to HTTPS or Azure IoT Hub MQTT, forwards backend commands to the Arduino, and supports OTA updates for the ESP32 firmware itself.
+This firmware bridges UART telemetry from an Arduino-class controller to a local MQTT broker, forwards backend commands to the Arduino over HTTP polling, and supports OTA updates for the ESP32 firmware itself.
+
+## Local MQTT Telemetry
+
+Telemetry is published to Mosquitto using the same topic schema consumed by the Flask backend:
+
+```text
+scc/site/<site_id>/rig/<rig_id>/device/<device_id>/telemetry
+```
+
+Configure the broker and device identity in `include/wifi_credentials_local.h`:
+
+```c
+#define MQTT_BROKER_URI "mqtt://YOUR_COMPUTER_LAN_IP:1883"
+#define MQTT_BASE_TOPIC "scc"
+#define MQTT_SITE_ID "site-01"
+#define MQTT_RIG_ID "rig-01"
+#define MQTT_DEVICE_ID "esp32-relay-01"
+```
+
+Use the LAN IP of the machine running Mosquitto. Do not use `localhost` on the ESP32; that points to the ESP32 itself.
+
+If you run the backend directly with `python run.py`, HTTP command polling can use port `5000`. If you run through Docker Compose, use the host-mapped backend port `5050` in `COMMAND_URL`.
 
 ## ESP32 OTA
 
@@ -19,8 +41,6 @@ The firmware recognizes an `ARDUINO_OTA` backend command as scaffolding for futu
 ```json
 {"cmdId": 11, "type": "ARDUINO_OTA", "url": "https://example.test/arduino-uno.hex"}
 ```
-
-The same command name is accepted as an Azure IoT Hub direct method with a JSON payload containing `url`.
 
 Current behavior:
 
