@@ -15,3 +15,4 @@ __MACOSX/
 *.pkl
 postgres-data/
 firmware/esp32/**/include/wifi_credentials_local.h
+tests/telemetry-pipeline/Firmwares/ESP32 Software Testing/include/test_config.h
