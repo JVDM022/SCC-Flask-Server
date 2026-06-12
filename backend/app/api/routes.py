@@ -11,6 +11,7 @@ from ..ml.predictor import ThermalPredictor
 from ..mpc.advisory import recommend_heater_pwm
 from ..services.firmware_ota import record_event, status_summary, upsert_heartbeat
 from ..services.mqtt_subscriber import mqtt_status
+from ..services.notification_email import notify_critical_alarms
 from ..services.pump_cycles import extract_pump_cycle_from_event
 from ..services.telemetry_parser import TELEMETRY_COLUMNS, parse_csv_batch
 from .auth import require_api_key
@@ -23,6 +24,7 @@ EVENT_NAMES = {
     2: "pump end",
     3: "pump recovered",
     4: "hard kill",
+    5: "sensor fault",
 }
 
 
@@ -45,18 +47,20 @@ def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
             Event(
                 event_code=event_code,
                 event_name=event_name,
-                severity="critical" if event_code == 4 else "info",
+                severity="critical" if event_code in {4, 5} else "info",
                 message=f"ESP32 event: {event_name}",
                 telemetry_id=telemetry.id,
             )
         )
 
-    for alarm in evaluate_alarms(row):
+    alarms = evaluate_alarms(row)
+    for alarm in alarms:
         db.session.add(Alarm(telemetry_id=telemetry.id, **alarm))
 
     extract_pump_cycle_from_event(telemetry)
     if commit:
         db.session.commit()
+        notify_critical_alarms(current_app._get_current_object(), telemetry, alarms)
     return telemetry
 
 
@@ -275,7 +279,7 @@ def control_setpoint():
     except (KeyError, TypeError, ValueError):
         return jsonify({"status": "error", "message": "setpoint_c must be provided as a number."}), 400
 
-    command = ControlCommand(setpoint_c=setpoint_c)
+    command = ControlCommand(command_type="SETPOINT", value=0, setpoint_c=setpoint_c)
     db.session.add(command)
     db.session.commit()
     return jsonify(
@@ -284,5 +288,25 @@ def control_setpoint():
             "id": command.id,
             "setpoint_c": setpoint_c,
             "warning": "ESP32 firmware safety limits, heater lockout, manual kill, and hard kill still dominate.",
+        }
+    )
+
+
+@api.post("/control/manual-kill")
+@require_api_key
+def control_manual_kill():
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("enabled", True))
+    command = ControlCommand(command_type="KILL", value=1 if enabled else 0, setpoint_c=0.0)
+    db.session.add(command)
+    db.session.commit()
+    return jsonify(
+        {
+            "status": "queued",
+            "id": command.id,
+            "type": "KILL",
+            "value": command.value,
+            "manual_kill": enabled,
+            "warning": "Manual kill commands are polled by the ESP32 and enforced by Arduino firmware.",
         }
     )

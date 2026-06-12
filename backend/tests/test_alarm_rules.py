@@ -39,3 +39,9 @@ def test_sensor_fault_for_missing_adc_or_temp():
     codes = {alarm["alarm_code"] for alarm in evaluate_alarms(base_row(adc=None))}
 
     assert "SENSOR_FAULT" in codes
+
+
+def test_sensor_fault_for_firmware_event_code():
+    codes = {alarm["alarm_code"] for alarm in evaluate_alarms(base_row(event=5))}
+
+    assert "SENSOR_FAULT" in codes

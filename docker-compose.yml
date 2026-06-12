@@ -39,6 +39,15 @@ services:
       CORS_ORIGINS: https://app.scc316.us
       PUBLIC_BASE_URL: https://api.scc316.us
       API_WRITE_KEY: ${API_WRITE_KEY:-}
+      ALERT_EMAIL_ENABLED: ${ALERT_EMAIL_ENABLED:-0}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_COOLDOWN_SECONDS: ${ALERT_EMAIL_COOLDOWN_SECONDS:-900}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-1}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: scc-backend
@@ -58,6 +67,7 @@ services:
     environment:
       VITE_API_BASE_URL: https://api.scc316.us/api
       VITE_WS_URL: https://api.scc316.us
+      VITE_API_WRITE_KEY: ${API_WRITE_KEY:-}
     volumes:
       - .:/app
     ports:

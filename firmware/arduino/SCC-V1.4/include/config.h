@@ -57,6 +57,13 @@
 #define MIN_Cx100          -2000
 #define HEATER_KILL_Cx100  SAFE_TEMP_HIGH_Cx100   // HARD KILL at 130.00 C
 
+// NTC/ADC rail checks. Open or shorted thermistor wiring normally drives the
+// ADC close to 0 or 1023; recovery thresholds add hysteresis for noisy edges.
+#define ADC_SENSOR_FAULT_LOW       5
+#define ADC_SENSOR_FAULT_HIGH      1018
+#define ADC_SENSOR_RECOVER_LOW     10
+#define ADC_SENSOR_RECOVER_HIGH    1013
+
 // ================== MOTOR TIMING ==================
 #define MOTOR_PERIOD_MS    30000UL   // cycle period
 #define MOTOR_ON_MS         1000UL   // ON duration in each cycle

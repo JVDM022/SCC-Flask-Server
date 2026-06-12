@@ -92,8 +92,11 @@ CREATE TABLE IF NOT EXISTS mpc_recommendations (
 CREATE TABLE IF NOT EXISTS control_commands (
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    command_type VARCHAR(40) NOT NULL DEFAULT 'SETPOINT',
+    value INTEGER NOT NULL DEFAULT 0,
     setpoint_c DOUBLE PRECISION NOT NULL,
-    applied BOOLEAN NOT NULL DEFAULT FALSE
+    applied BOOLEAN NOT NULL DEFAULT FALSE,
+    sent_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS devices (
@@ -212,6 +215,9 @@ ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS rig_id VARCHAR(120);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS device_id VARCHAR(120);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS mqtt_topic VARCHAR(255);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS raw_payload JSONB;
+ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS command_type VARCHAR(40) NOT NULL DEFAULT 'SETPOINT';
+ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS value INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_created_at ON telemetry(created_at);
 CREATE INDEX IF NOT EXISTS idx_telemetry_device_id ON telemetry(device_id);
@@ -229,3 +235,5 @@ CREATE INDEX IF NOT EXISTS idx_devices_last_heartbeat ON devices(last_heartbeat)
 CREATE INDEX IF NOT EXISTS idx_mqtt_message_log_created_at ON mqtt_message_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_mqtt_message_log_device_id ON mqtt_message_log(device_id);
 CREATE INDEX IF NOT EXISTS idx_ml_predictions_device_id ON ml_predictions(device_id);
+CREATE INDEX IF NOT EXISTS idx_control_commands_applied ON control_commands(applied);
+CREATE INDEX IF NOT EXISTS idx_control_commands_command_type ON control_commands(command_type);

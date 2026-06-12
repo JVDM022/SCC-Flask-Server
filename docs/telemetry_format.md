@@ -19,3 +19,4 @@ Event codes:
 - `2`: pump end
 - `3`: pump recovered
 - `4`: hard kill
+- `5`: sensor fault

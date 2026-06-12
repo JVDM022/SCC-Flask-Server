@@ -31,3 +31,12 @@ class Config:
     MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
     MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
     MQTT_ENABLED = os.getenv("MQTT_ENABLED", "1") == "1"
+    ALERT_EMAIL_ENABLED = os.getenv("ALERT_EMAIL_ENABLED", "0") == "1"
+    ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO", "")
+    ALERT_EMAIL_FROM = os.getenv("ALERT_EMAIL_FROM", "")
+    ALERT_EMAIL_COOLDOWN_SECONDS = int(os.getenv("ALERT_EMAIL_COOLDOWN_SECONDS", "900"))
+    SMTP_HOST = os.getenv("SMTP_HOST", "")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+    SMTP_STARTTLS = os.getenv("SMTP_STARTTLS", "1") == "1"

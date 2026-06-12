@@ -14,7 +14,7 @@ function matchesFilter(event: RigEvent, filter: string): boolean {
   if (filter === 'Warnings') return event.severity === 'warning';
   if (filter === 'Critical') return event.severity === 'critical';
   if (filter === 'Pump Events') return [1, 2, 3].includes(event.event_code);
-  if (filter === 'Controller Events') return event.event_name.toLowerCase().includes('controller') || event.event_code === 4;
+  if (filter === 'Controller Events') return event.event_name.toLowerCase().includes('controller') || [4, 5].includes(event.event_code);
   if (filter === 'ML Events') return event.event_name.toLowerCase().includes('model') || event.message.toLowerCase().includes('model');
   return true;
 }

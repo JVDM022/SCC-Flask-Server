@@ -18,3 +18,10 @@ int16_t adcToTempCx100(uint16_t adc) {
 
   return (int16_t)(tempC * 100.0f + (tempC >= 0 ? 0.5f : -0.5f));
 }
+
+bool adcIndicatesSensorFault(uint16_t adc, bool faultActive) {
+  if (faultActive) {
+    return adc <= ADC_SENSOR_RECOVER_LOW || adc >= ADC_SENSOR_RECOVER_HIGH;
+  }
+  return adc <= ADC_SENSOR_FAULT_LOW || adc >= ADC_SENSOR_FAULT_HIGH;
+}

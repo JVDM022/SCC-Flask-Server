@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from ..database.db import db
-from ..database.models import FirmwareArtifact, FirmwareCommand
+from ..database.models import ControlCommand, FirmwareArtifact, FirmwareCommand
 from .auth import require_api_key
 
 firmware_api = Blueprint("firmware_api", __name__)
@@ -26,6 +26,7 @@ COMMAND_TYPES = {
 
 COMMAND_STATUSES = {"pending", "sent", "started", "success", "failed", "cancelled"}
 ACK_STATUSES = {"success", "failed", "started"}
+CONTROL_CMD_ID_OFFSET = 100_000_000
 
 
 def normalize_target(value: Any) -> str:
@@ -54,6 +55,15 @@ def command_to_response(command: FirmwareCommand) -> dict[str, Any]:
     row = command.to_dict()
     row["cmdId"] = command.id
     return row
+
+
+def control_command_payload(command: ControlCommand) -> dict[str, Any]:
+    cmd_id = CONTROL_CMD_ID_OFFSET + command.id
+    if command.command_type == "KILL":
+        return {"cmdId": cmd_id, "type": "KILL", "value": command.value}
+    if command.command_type == "SETPOINT":
+        return {"cmdId": cmd_id, "type": "SETPOINT", "setpoint_c": command.setpoint_c}
+    return {"cmdId": cmd_id, "type": command.command_type, "value": command.value}
 
 
 @firmware_api.post("/api/firmware/artifacts")
@@ -186,6 +196,18 @@ def get_next_firmware_command():
     device = str(request.args.get("device") or "").strip().lower()
     if device and device not in {"esp32", "relay"}:
         return jsonify({"status": "none"})
+
+    control_command = (
+        ControlCommand.query.filter_by(applied=False)
+        .filter(ControlCommand.command_type == "KILL")
+        .order_by(ControlCommand.created_at.asc(), ControlCommand.id.asc())
+        .first()
+    )
+    if control_command is not None:
+        control_command.applied = True
+        control_command.sent_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(control_command_payload(control_command))
 
     command = (
         FirmwareCommand.query.filter_by(status="pending")

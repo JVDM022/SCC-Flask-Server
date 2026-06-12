@@ -124,8 +124,11 @@ class ControlCommand(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    command_type = db.Column(db.String(40), nullable=False, default="SETPOINT", index=True)
+    value = db.Column(db.Integer, nullable=False, default=0)
     setpoint_c = db.Column(db.Float, nullable=False)
     applied = db.Column(db.Boolean, default=False, nullable=False)
+    sent_at = db.Column(db.DateTime, nullable=True)
 
 
 class Device(db.Model, SerializerMixin):

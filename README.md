@@ -93,11 +93,39 @@ Example:
 0,123456,126.42,222,-0.1300,125.00,3,184,1,0,1,1,0,155,150,30000,127.20,124.80,2.40,18.50,0,0,300
 ```
 
-Event codes: `0` normal sample, `1` pump start, `2` pump end, `3` pump recovered, `4` hard kill.
+Event codes: `0` normal sample, `1` pump start, `2` pump end, `3` pump recovered, `4` hard kill, `5` sensor fault.
 
 ## Safety Philosophy
 
 ESP32 firmware and hardware own hard safety. Flask, ML, and MPC are monitoring and advisory layers, not the only protection layer. Heater lockout, manual kill, and hard kill override all recommendations; MPC returns PWM 0 when any of those states is active.
+
+## Email Alerts
+
+The backend can send SMTP email for critical safety alarms such as hard kill, manual kill, and sensor fault. Configure these environment variables in `.env` or Azure App Settings:
+
+```text
+ALERT_EMAIL_ENABLED=1
+ALERT_EMAIL_TO=operator@example.com
+ALERT_EMAIL_FROM=scc-alerts@example.com
+ALERT_EMAIL_COOLDOWN_SECONDS=900
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=scc-alerts@example.com
+SMTP_PASSWORD=your-app-password
+SMTP_STARTTLS=1
+```
+
+Use an app password or service-specific SMTP credential rather than a personal account password. The backend rate-limits repeated messages for the same device and alarm set using `ALERT_EMAIL_COOLDOWN_SECONDS`.
+
+## Manual Emergency Control
+
+The Operations HMI can queue `KILL 1` and `KILL 0` commands for the ESP32 relay to forward to the Arduino controller. Set `API_WRITE_KEY` on the backend and `VITE_API_WRITE_KEY` on the frontend to the same value when command authentication is enabled. The ESP32 can keep polling:
+
+```text
+/api/firmware/commands/next?device=esp32
+```
+
+Pending manual kill commands are delivered through that endpoint before OTA commands, so existing relay firmware command polling remains compatible.
 
 ## Dependency Explanation
 

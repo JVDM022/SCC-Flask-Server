@@ -1,5 +1,7 @@
-import { Activity, Flame, Gauge, RotateCcw, Thermometer } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Activity, Flame, Gauge, Power, PowerOff, RotateCcw, ShieldAlert, Thermometer } from 'lucide-react';
 
+import { queueManualKill } from '../api/client';
 import { AlarmPanel } from '../components/AlarmPanel';
 import { MetricCard } from '../components/MetricCard';
 import { TimelinePanel } from '../components/TimelinePanel';
@@ -12,8 +14,19 @@ interface OperationsDashboardProps {
 }
 
 export function OperationsDashboard({ data }: OperationsDashboardProps) {
+  const queryClient = useQueryClient();
   const latest = data.latest;
   const tempError = latest ? latest.temp_c - latest.setpoint_c : null;
+  const manualKillActive = Boolean(latest?.manual_kill);
+  const safetyMutation = useMutation({
+    mutationFn: queueManualKill,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard-data'] });
+      queryClient.invalidateQueries({ queryKey: ['mqtt-status'] });
+      queryClient.invalidateQueries({ queryKey: ['firmware-commands'] });
+    },
+  });
+  const safetyError = safetyMutation.error instanceof Error ? safetyMutation.error.message : 'Command failed';
   const x = data.history.map((row) => row.created_at || row.ms);
   const horizon5 = data.prediction.predictions?.find((item) => item.horizon_s === 5);
   const predictedLine = data.history.map(() => null as number | null);
@@ -32,6 +45,40 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <MetricCard icon={Gauge} label="System Mode" value={modeLabel(latest?.mode)} detail="Arduino controller state" />
       </section>
 
+      <section className={`panel safety-control-panel ${manualKillActive ? 'safety-control-panel--active' : ''}`}>
+        <div className="panel__header">
+          <div>
+            <h2>Manual Emergency Control</h2>
+            <p>Queues a manual kill command for the ESP32 relay to forward to the Arduino controller</p>
+          </div>
+          <ShieldAlert size={20} />
+        </div>
+        <div className="safety-control-actions">
+          <button
+            className="safety-button safety-button--kill"
+            onClick={() => safetyMutation.mutate(true)}
+            disabled={safetyMutation.isPending || manualKillActive}
+            type="button"
+          >
+            <PowerOff size={18} />
+            Emergency Off
+          </button>
+          <button
+            className="safety-button safety-button--release"
+            onClick={() => safetyMutation.mutate(false)}
+            disabled={safetyMutation.isPending || !manualKillActive}
+            type="button"
+          >
+            <Power size={18} />
+            Release Manual Kill
+          </button>
+          <span className={`safety-state ${manualKillActive ? 'critical' : 'normal'}`}>
+            {manualKillActive ? 'Manual kill active' : 'Manual kill clear'}
+          </span>
+          {safetyMutation.isError ? <span className="safety-error">{safetyError}</span> : null}
+        </div>
+      </section>
+
       <section className="workspace-grid workspace-grid--main">
         <TrendPanel
           title="Thermal Process"
@@ -47,7 +94,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <AlarmPanel alarms={data.alarms} />
       </section>
 
-      <TimelinePanel events={data.events.filter((event) => [1, 2, 3, 4].includes(event.event_code))} />
+      <TimelinePanel events={data.events.filter((event) => [1, 2, 3, 4, 5].includes(event.event_code))} />
     </main>
   );
 }

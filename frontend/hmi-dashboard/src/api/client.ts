@@ -16,6 +16,7 @@ import type {
 } from '../types/domain';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const API_WRITE_KEY = import.meta.env.VITE_API_WRITE_KEY || '';
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`);
@@ -26,9 +27,13 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (API_WRITE_KEY) {
+    headers['X-API-Key'] = API_WRITE_KEY;
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -126,4 +131,8 @@ export async function fetchDevices(): Promise<Device[]> {
 
 export async function fetchLatestTelemetry(): Promise<Telemetry | { status?: string }> {
   return getJson<Telemetry | { status?: string }>('/telemetry/latest');
+}
+
+export async function queueManualKill(enabled: boolean): Promise<{ status: string; id: number; manual_kill: boolean }> {
+  return postJson('/control/manual-kill', { enabled });
 }

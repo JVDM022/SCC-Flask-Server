@@ -16,6 +16,10 @@ static uint32_t programStartMs = 0;
 static bool runtimeExpired = false;
 static bool pumpTempAllowed = false;
 static bool hardKillActive = false;
+static bool sensorFaultActive = false;
+static bool manualKillActive = false;
+static char serialCommandBuf[32];
+static uint8_t serialCommandIdx = 0;
 
 static bool pumpOnCmd = false;
 static bool pumpWasOn = false;
@@ -33,8 +37,6 @@ static int16_t lastRateTempCx100 = 0;
 
 #if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
 static bool bootloaderEntryPending = false;
-static char bootloaderCommandBuf[24];
-static uint8_t bootloaderCommandIdx = 0;
 #endif
 
 enum CsvEvent : uint8_t {
@@ -42,7 +44,8 @@ enum CsvEvent : uint8_t {
   CSV_PUMP_START = 1,
   CSV_PUMP_END = 2,
   CSV_PUMP_RECOVERED = 3,
-  CSV_HARD_KILL = 4
+  CSV_HARD_KILL = 4,
+  CSV_SENSOR_FAULT = 5
 };
 
 static void printCx100(int16_t valueCx100) {
@@ -119,7 +122,7 @@ static void printCsvRow(uint8_t eventCode, uint32_t now, uint16_t adc, int16_t t
     Serial.print(F("nan"));
   }
   Serial.print(',');
-  Serial.print(0);
+  Serial.print(manualKillActive ? 1 : 0);
   Serial.print(',');
   Serial.print(hardKillActive ? 1 : 0);
   Serial.print(',');
@@ -156,15 +159,53 @@ static void prepareForBootloaderEntry() {
   Serial.flush();
   resetForBootloaderEntry();
 }
+#endif
 
-static void handleBootloaderCommandLine(char *line) {
+static void handleSerialCommandLine(char *line) {
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
   if (isBootloaderEntryCommand(line)) {
     prepareForBootloaderEntry();
+    return;
+  }
+#endif
+
+  if (strncmp(line, "KILL", 4) == 0) {
+    int value = atoi(line + 4);
+    manualKillActive = value != 0;
+    if (manualKillActive) {
+      heaterSet(0);
+      motorSet(false);
+      heating = false;
+      heaterLockout = true;
+      pidIntegral = 0.0f;
+      pumpTempAllowed = false;
+      pumpOnCmd = false;
+      pumpCmdPwm = 0;
+    }
+    return;
+  }
+
+  if (strncmp(line, "SET_ON", 6) == 0) {
+    int value = atoi(line + 6);
+    motorEnabled = value != 0;
+    if (!motorEnabled) {
+      motorSet(false);
+      pumpOnCmd = false;
+      pumpCmdPwm = 0;
+    }
   }
 }
 
-static void serviceBootloaderEntrySerial() {
-  while (!bootloaderEntryPending && Serial.available() > 0) {
+static bool serialCommandServiceBlocked() {
+#if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
+  return bootloaderEntryPending;
+#else
+  return false;
+#endif
+}
+
+static void serviceSerialCommands() {
+  while (!serialCommandServiceBlocked() && Serial.available() > 0) {
     char c = Serial.read();
 
     if (c == '\r') {
@@ -172,20 +213,19 @@ static void serviceBootloaderEntrySerial() {
     }
 
     if (c == '\n') {
-      bootloaderCommandBuf[bootloaderCommandIdx] = '\0';
-      handleBootloaderCommandLine(bootloaderCommandBuf);
-      bootloaderCommandIdx = 0;
+      serialCommandBuf[serialCommandIdx] = '\0';
+      handleSerialCommandLine(serialCommandBuf);
+      serialCommandIdx = 0;
       continue;
     }
 
-    if (bootloaderCommandIdx < (sizeof(bootloaderCommandBuf) - 1)) {
-      bootloaderCommandBuf[bootloaderCommandIdx++] = c;
+    if (serialCommandIdx < (sizeof(serialCommandBuf) - 1)) {
+      serialCommandBuf[serialCommandIdx++] = c;
     } else {
-      bootloaderCommandIdx = 0;
+      serialCommandIdx = 0;
     }
   }
 }
-#endif
 
 static void updatePumpTelemetry(uint32_t now, uint16_t adc, int16_t tempCx100) {
   if (pumpOnCmd && !pumpWasOn) {
@@ -244,6 +284,9 @@ void setup() {
   runtimeExpired = false;
   pumpTempAllowed = false;
   hardKillActive = false;
+  sensorFaultActive = false;
+  manualKillActive = false;
+  serialCommandIdx = 0;
   pumpOnCmd = false;
   pumpCmdPwm = 0;
   pumpWasOn = false;
@@ -260,8 +303,8 @@ void setup() {
 void loop() {
   uint32_t now = millis();
 
+  serviceSerialCommands();
 #if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
-  serviceBootloaderEntrySerial();
   if (bootloaderEntryPending) {
     delay(1);
     return;
@@ -278,6 +321,8 @@ void loop() {
 
   // ----- READ TEMP -----
   uint16_t adc = readAdcAvg();
+  bool wasSensorFaultActive = sensorFaultActive;
+  sensorFaultActive = adcIndicatesSensorFault(adc, sensorFaultActive);
   int16_t tempCx100 = adcToTempCx100(adc);
 
   if (lastRateMs == 0) {
@@ -294,6 +339,51 @@ void loop() {
   if (runtimeExpired) {
     pumpOnCmd = false;
     updatePumpTelemetry(now, adc, tempCx100);
+    static uint32_t lastRuntimePrint = 0;
+    if (now - lastRuntimePrint > 1000) {
+      lastRuntimePrint = now;
+      printCsvRow(CSV_SAMPLE, now, adc, tempCx100);
+    }
+    delay(1000);
+    return;
+  }
+
+  if (sensorFaultActive) {
+    heating = false;
+    heaterLockout = true;
+    pidIntegral = 0.0f;
+    heaterSet(0);
+    motorSet(false);
+    pumpOnCmd = false;
+    pumpCmdPwm = 0;
+    if (!wasSensorFaultActive) {
+      printCsvRow(CSV_SENSOR_FAULT, now, adc, tempCx100);
+    }
+    updatePumpTelemetry(now, adc, tempCx100);
+    static uint32_t lastSensorFaultPrint = 0;
+    if (now - lastSensorFaultPrint > 1000) {
+      lastSensorFaultPrint = now;
+      printCsvRow(CSV_SAMPLE, now, adc, tempCx100);
+    }
+    delay(1000);
+    return;
+  }
+
+  if (manualKillActive) {
+    heating = false;
+    heaterLockout = true;
+    pidIntegral = 0.0f;
+    heaterSet(0);
+    motorSet(false);
+    pumpTempAllowed = false;
+    pumpOnCmd = false;
+    pumpCmdPwm = 0;
+    updatePumpTelemetry(now, adc, tempCx100);
+    static uint32_t lastManualKillPrint = 0;
+    if (now - lastManualKillPrint > 1000) {
+      lastManualKillPrint = now;
+      printCsvRow(CSV_SAMPLE, now, adc, tempCx100);
+    }
     delay(1000);
     return;
   }

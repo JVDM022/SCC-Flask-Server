@@ -17,6 +17,8 @@ def evaluate_alarms(row: dict) -> list[dict]:
         add("critical", "MANUAL_KILL", "Manual kill switch is active.")
     if row.get("heater_lockout") == 1:
         add("warning", "HEATER_LOCKOUT", "Heater lockout is active.")
+    if row.get("event") == 5:
+        add("critical", "SENSOR_FAULT", "NTC/ADC sensor fault is active.")
 
     temp_c = row.get("temp_c")
     setpoint_c = row.get("setpoint_c")

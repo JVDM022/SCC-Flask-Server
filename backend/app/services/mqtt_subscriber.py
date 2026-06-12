@@ -15,6 +15,7 @@ from ..database.db import db
 from ..database.models import (
     Alarm,
     Device,
+    Event,
     FirmwareUpdateEvent,
     MlPredictionRecord,
     MpcRecommendation,
@@ -25,11 +26,19 @@ from ..ml.predictor import ThermalPredictor
 from ..mpc.advisory import recommend_heater_pwm
 from ..realtime import socketio
 from .pump_cycles import extract_pump_cycle_from_event
+from .notification_email import notify_critical_alarms
 from .telemetry_parser import TELEMETRY_COLUMNS
 
 LOGGER = logging.getLogger(__name__)
 SUBSCRIBED_SUFFIXES = ("telemetry", "state", "alarm", "heartbeat", "ota/status")
 MAX_INT32 = 2_147_483_647
+EVENT_NAMES = {
+    1: "pump start",
+    2: "pump end",
+    3: "pump recovered",
+    4: "hard kill",
+    5: "sensor fault",
+}
 
 
 @dataclass
@@ -203,14 +212,27 @@ def normalize_telemetry(parts: TopicParts, payload: dict[str, Any], topic: str) 
     return {key: row.get(key, 0) for key in TELEMETRY_COLUMNS + ["site_id", "rig_id", "device_id", "mqtt_topic", "raw_payload"]}
 
 
-def store_telemetry(row: dict[str, Any]) -> Telemetry:
+def store_telemetry(row: dict[str, Any]) -> tuple[Telemetry, list[dict]]:
     telemetry = Telemetry(**row)
     db.session.add(telemetry)
     db.session.flush()
-    for alarm in evaluate_alarms(row):
+    event_code = int_value(row.get("event"), 0)
+    if event_code != 0:
+        event_name = EVENT_NAMES.get(event_code, "unknown")
+        db.session.add(
+            Event(
+                event_code=event_code,
+                event_name=event_name,
+                severity="critical" if event_code in {4, 5} else "info",
+                message=f"ESP32 event: {event_name}",
+                telemetry_id=telemetry.id,
+            )
+        )
+    alarms = evaluate_alarms(row)
+    for alarm in alarms:
         db.session.add(Alarm(telemetry_id=telemetry.id, **alarm))
     extract_pump_cycle_from_event(telemetry)
-    return telemetry
+    return telemetry, alarms
 
 
 def store_predictions_and_mpc(app: Flask, telemetry: Telemetry) -> None:
@@ -276,7 +298,7 @@ def handle_message(app: Flask, msg: mqtt.MQTTMessage) -> None:
             db.session.add(device)
             if parts.message_type == "telemetry":
                 telemetry_row = normalize_telemetry(parts, payload, topic)
-                telemetry = store_telemetry(telemetry_row)
+                telemetry, telemetry_alarms = store_telemetry(telemetry_row)
                 store_predictions_and_mpc(app, telemetry)
             elif parts.message_type == "alarm":
                 device.alarm_status = str(payload.get("severity") or "warning")
@@ -301,6 +323,8 @@ def handle_message(app: Flask, msg: mqtt.MQTTMessage) -> None:
                     )
                 )
         db.session.commit()
+        if telemetry is not None:
+            notify_critical_alarms(app, telemetry, telemetry_alarms)
         with RUNTIME.lock:
             RUNTIME.last_message_at = datetime.utcnow().isoformat()
             RUNTIME.last_error = error

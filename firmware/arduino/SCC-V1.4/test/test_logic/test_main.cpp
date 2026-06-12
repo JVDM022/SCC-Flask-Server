@@ -54,6 +54,22 @@ void test_adc_to_temp_clamps_low_end() {
   TEST_ASSERT_EQUAL_INT16(MIN_Cx100, adcToTempCx100(1023));
 }
 
+void test_adc_sensor_fault_detects_rail_values() {
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(0));
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(ADC_SENSOR_FAULT_LOW));
+  TEST_ASSERT_FALSE(adcIndicatesSensorFault(ADC_SENSOR_FAULT_LOW + 1));
+  TEST_ASSERT_FALSE(adcIndicatesSensorFault(ADC_SENSOR_FAULT_HIGH - 1));
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(ADC_SENSOR_FAULT_HIGH));
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(1023));
+}
+
+void test_adc_sensor_fault_uses_recovery_hysteresis() {
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(ADC_SENSOR_RECOVER_LOW, true));
+  TEST_ASSERT_FALSE(adcIndicatesSensorFault(ADC_SENSOR_RECOVER_LOW + 1, true));
+  TEST_ASSERT_FALSE(adcIndicatesSensorFault(ADC_SENSOR_RECOVER_HIGH - 1, true));
+  TEST_ASSERT_TRUE(adcIndicatesSensorFault(ADC_SENSOR_RECOVER_HIGH, true));
+}
+
 void test_pump_temperature_gate_enables_with_headroom() {
   TEST_ASSERT_FALSE(nextPumpTempAllowed(false, PUMP_ENABLE_Cx100 - 1));
   TEST_ASSERT_TRUE(nextPumpTempAllowed(false, PUMP_ENABLE_Cx100));
@@ -238,6 +254,8 @@ static void runFunctionTests() {
   RUN_TEST(test_adc_to_temp_uses_calibrated_fit);
   RUN_TEST(test_adc_to_temp_rounds_negative_values);
   RUN_TEST(test_adc_to_temp_clamps_low_end);
+  RUN_TEST(test_adc_sensor_fault_detects_rail_values);
+  RUN_TEST(test_adc_sensor_fault_uses_recovery_hysteresis);
   RUN_TEST(test_pump_temperature_gate_enables_with_headroom);
   RUN_TEST(test_pump_temperature_gate_uses_low_hysteresis);
   RUN_TEST(test_pump_temperature_gate_blocks_upper_limit);
