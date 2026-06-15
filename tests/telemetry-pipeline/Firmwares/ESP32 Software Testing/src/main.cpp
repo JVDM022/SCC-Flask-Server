@@ -59,8 +59,7 @@ static bool wifiReady() {
 }
 
 static bool configReady() {
-  return strlen(TEST_WIFI_SSID) > 0 && strlen(TEST_FLASK_TELEMETRY_URL) > 0 &&
-         strlen(TEST_API_WRITE_KEY) > 0;
+  return strlen(TEST_WIFI_SSID) > 0 && strlen(TEST_FLASK_TELEMETRY_URL) > 0;
 }
 
 static void buildTelemetryJson(char *out, size_t outLen, const relay_arduino_snapshot_t &sample) {
@@ -120,7 +119,9 @@ static void postTelemetry(const char *sourceCsv) {
 
   http.begin(TEST_FLASK_TELEMETRY_URL);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", TEST_API_WRITE_KEY);
+  if (strlen(TEST_API_WRITE_KEY) > 0) {
+    http.addHeader("X-API-Key", TEST_API_WRITE_KEY);
+  }
 
   const int status = http.POST(reinterpret_cast<uint8_t *>(payload), strlen(payload));
   const String body = http.getString();
