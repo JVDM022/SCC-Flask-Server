@@ -9,11 +9,17 @@ static const char *kRows[] = {
 static const size_t kRowCount = sizeof(kRows) / sizeof(kRows[0]);
 static size_t rowIndex = 0;
 static uint32_t lastEmitMs = 0;
+static uint32_t emittedRows = 0;
+
+static void printHeader() {
+  Serial.println(F("event,ms,temp_c,adc,dtemp_c_per_s,setpoint_c,mode,heater_pwm,heating,heater_lockout,pump_enabled,pump_allowed,pump_on,motor_pwm,motor_on_ms,motor_period_ms,temp_before_pump_c,min_temp_after_pump_c,last_pump_drop_c,recovery_time_s,manual_kill,hard_kill,uptime_s"));
+}
 
 void setup() {
   Serial.begin(115200);
   delay(1500);
-  Serial.println(F("event,ms,temp_c,adc,dtemp_c_per_s,setpoint_c,mode,heater_pwm,heating,heater_lockout,pump_enabled,pump_allowed,pump_on,motor_pwm,motor_on_ms,motor_period_ms,temp_before_pump_c,min_temp_after_pump_c,last_pump_drop_c,recovery_time_s,manual_kill,hard_kill,uptime_s"));
+  Serial.println(F("ARDUINO_CSV_TEST_READY"));
+  printHeader();
 }
 
 void loop() {
@@ -23,6 +29,10 @@ void loop() {
   }
 
   lastEmitMs = now;
+  if (emittedRows > 0 && emittedRows % 30U == 0U) {
+    printHeader();
+  }
   Serial.println(kRows[rowIndex]);
+  emittedRows++;
   rowIndex = (rowIndex + 1U) % kRowCount;
 }
