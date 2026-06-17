@@ -16,6 +16,7 @@ extern bool heating;
 extern bool heaterLockout;
 
 extern int16_t activeSetpointCx100;
+extern int16_t targetSetpointCx100;
 extern ControlMode controlMode;
 
 extern float pidIntegral;
@@ -30,6 +31,7 @@ uint8_t applyMotorBias(uint8_t basePwm, uint32_t now);
 
 void resetAutotune(uint32_t now);
 void finishAutotune(uint32_t now, int16_t tempCx100);
+bool setTargetSetpointCx100(int16_t setpointCx100);
 uint8_t computeAutotunePwm(int16_t tempCx100, uint32_t now);
 uint8_t computePidPwm(int16_t tempCx100, uint32_t now);
 

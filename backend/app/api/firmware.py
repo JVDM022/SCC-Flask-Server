@@ -27,6 +27,8 @@ COMMAND_TYPES = {
 COMMAND_STATUSES = {"pending", "sent", "started", "success", "failed", "cancelled"}
 ACK_STATUSES = {"success", "failed", "started"}
 CONTROL_CMD_ID_OFFSET = 100_000_000
+RELAY_DEVICE_ALIASES = {"esp32", "relay"}
+NUC_DEVICE_ALIASES = {"nuc", "intel-nuc", "intel_nuc", "nuc-gateway", "nuc_gateway"}
 
 
 def normalize_target(value: Any) -> str:
@@ -103,7 +105,7 @@ def upload_firmware_artifact():
 
     notes = None
     if target == "ARDUINO":
-        notes = "Arduino .hex upload is scaffolding only until ESP32 STK500/Optiboot flashing is implemented."
+        notes = "Arduino .hex uploads are flashed by the Intel NUC USB gateway when it polls ARDUINO_OTA commands."
 
     artifact = FirmwareArtifact(
         target=target,
@@ -167,7 +169,7 @@ def create_firmware_command():
         "url": artifact.url,
     }
     if target == "ARDUINO":
-        command_json["note"] = "Arduino OTA command queued, but flashing requires ESP32 STK500/Optiboot flasher implementation."
+        command_json["note"] = "Arduino OTA command queued for the Intel NUC USB gateway."
 
     command = FirmwareCommand(
         target=target,
@@ -194,12 +196,12 @@ def list_firmware_commands():
 @firmware_api.get("/api/firmware/commands/next")
 def get_next_firmware_command():
     device = str(request.args.get("device") or "").strip().lower()
-    if device and device not in {"esp32", "relay"}:
+    if device and device not in RELAY_DEVICE_ALIASES | NUC_DEVICE_ALIASES:
         return jsonify({"status": "none"})
 
     control_command = (
         ControlCommand.query.filter_by(applied=False)
-        .filter(ControlCommand.command_type == "KILL")
+        .filter(ControlCommand.command_type.in_(["KILL", "SETPOINT"] if device in NUC_DEVICE_ALIASES else ["KILL"]))
         .order_by(ControlCommand.created_at.asc(), ControlCommand.id.asc())
         .first()
     )
@@ -209,11 +211,10 @@ def get_next_firmware_command():
         db.session.commit()
         return jsonify(control_command_payload(control_command))
 
-    command = (
-        FirmwareCommand.query.filter_by(status="pending")
-        .order_by(FirmwareCommand.created_at.asc(), FirmwareCommand.id.asc())
-        .first()
-    )
+    query = FirmwareCommand.query.filter_by(status="pending")
+    if device in NUC_DEVICE_ALIASES:
+        query = query.filter_by(target="ARDUINO")
+    command = query.order_by(FirmwareCommand.created_at.asc(), FirmwareCommand.id.asc()).first()
     if command is None:
         return jsonify({"status": "none"})
 

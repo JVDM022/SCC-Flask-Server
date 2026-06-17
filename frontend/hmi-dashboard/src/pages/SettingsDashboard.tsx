@@ -30,7 +30,7 @@ export function SettingsDashboard({ data }: SettingsDashboardProps) {
           </div>
           <div className="insight-list">
             <p>Arduino firmware owns thermal SCC rig control behavior.</p>
-            <p>ESP32 relay firmware only bridges telemetry and commands.</p>
+            <p>Intel NUC gateway only bridges telemetry, commands, and Arduino firmware updates.</p>
             <p>MPC remains advisory; hard kill, manual kill, and heater lockout dominate all recommendations.</p>
           </div>
         </section>

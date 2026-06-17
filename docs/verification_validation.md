@@ -2,7 +2,7 @@
 
 ## 9.1. Verification and Validation Overview
 
-The SCC platform has implemented automated unit tests for firmware logic, ESP32 relay parsing, backend parsing, alarms, firmware APIs, authentication, and MPC safety overrides. The repository also includes manual integration procedures for telemetry pipeline validation and standalone hardware test sketches for the thermistor, heater, and motor.
+The SCC platform has implemented automated unit tests for firmware logic, NUC gateway command construction, ESP32 legacy relay parsing, backend parsing, alarms, firmware APIs, authentication, and MPC safety overrides. The repository also includes manual integration procedures for telemetry pipeline validation and standalone hardware test sketches for the thermistor, heater, and motor.
 
 The tables below list only tests and validation procedures that are present in the repository. Items that are only planned, such as dashboard automation, heartbeat monitoring, and full end-to-end system commissioning tests, are not included.
 
@@ -25,15 +25,16 @@ The tables below list only tests and validation procedures that are present in t
 | UT-013 | Backend API authentication | Protected telemetry write endpoints reject missing keys and accept valid API key formats | Implemented |
 | UT-014 | Firmware API validation and command queue | ESP32 and Arduino firmware file types are validated and queued commands can be acknowledged | Implemented |
 | UT-015 | MPC safety override | MPC recommendations return zero PWM during hard kill, manual kill, or heater lockout states | Implemented |
+| UT-016 | Intel NUC gateway command mapping | Backend commands map to Arduino USB serial lines and Arduino `.hex` flashing uses the expected `avrdude` command | Implemented |
 
 ## 9.3. Integration and Hardware Validation Procedures
 
 | Test ID | Description | Expected Result | Status |
 | --- | --- | --- | --- |
-| IT-001 | Arduino telemetry to ESP32 relay parsing | ESP32 receives deterministic Arduino CSV rows and parses them with the relay core parser | Manual procedure defined |
-| IT-002 | ESP32 telemetry relay to Flask API | ESP32 posts parsed telemetry JSON to the Flask telemetry endpoint | Manual procedure defined |
+| IT-001 | Arduino USB telemetry to NUC gateway parsing | The NUC gateway receives deterministic Arduino CSV rows and parses them with the backend telemetry parser | Manual procedure defined |
+| IT-002 | NUC gateway telemetry relay to Flask API | The NUC gateway posts parsed telemetry JSON to the Flask telemetry endpoint | Manual procedure defined |
 | IT-003 | Flask telemetry ingestion to PostgreSQL | Stored PostgreSQL rows match the source Arduino CSV fixture | Manual verifier implemented |
-| IT-004 | End-to-end telemetry pipeline | Data propagate from Arduino test firmware through ESP32 and Flask into PostgreSQL | Manual procedure defined |
+| IT-004 | End-to-end telemetry pipeline | Data propagate from Arduino test firmware through the NUC gateway and Flask into PostgreSQL | Manual procedure defined |
 | IT-005 | Backend-only telemetry pipeline smoke test | Sample CSV rows are posted directly to Flask and verified against PostgreSQL without hardware | Scripted verifier implemented |
 | IT-006 | Standalone NTC temperature readout | Arduino reads thermistor ADC values and prints live temperature CSV rows | Manual hardware test project defined |
 | IT-007 | Standalone heater control test | Arduino heater test accepts start/stop commands, limits PWM, and reports hard-kill status | Manual hardware test project defined |
@@ -41,4 +42,4 @@ The tables below list only tests and validation procedures that are present in t
 
 ## 9.4. Current Coverage Gaps
 
-The repository does not currently include automated tests for dashboard live updates, MQTT broker transport, device heartbeat/offline detection, full HMI-to-Arduino manual kill routing, or complete long-duration system commissioning. These should remain listed as future validation work unless separate test evidence is produced.
+The repository does not currently include automated tests for dashboard live updates, physical USB serial I/O, device heartbeat/offline detection, full HMI-to-Arduino manual kill routing on hardware, or complete long-duration system commissioning. These should remain listed as future validation work unless separate test evidence is produced.

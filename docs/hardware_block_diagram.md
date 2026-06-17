@@ -3,8 +3,8 @@
 This diagram reflects the current SCC control-platform firmware layout:
 
 - Arduino Uno owns the thermal control loop, sensor readout, heater PWM, and pump/motor PWM.
-- ESP32 acts as the communications bridge between the Arduino UART and the local MQTT/backend stack.
-- Arduino-over-UART OTA reset wiring is optional scaffolding and does not currently flash Arduino firmware.
+- Intel NUC acts as the communications bridge between Arduino USB serial and the backend API.
+- Arduino firmware updates are flashed from the NUC over USB with `avrdude`.
 
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"background": "#0b0f14", "mainBkg": "#121821", "secondBkg": "#0f151d", "primaryColor": "#121821", "primaryTextColor": "#e5e7eb", "primaryBorderColor": "#1f2937", "lineColor": "#64748b", "secondaryColor": "#0f151d", "tertiaryColor": "#101923", "fontFamily": "Inter, IBM Plex Sans, ui-sans-serif, system-ui, sans-serif", "edgeLabelBackground": "#0b0f14", "clusterBkg": "#0f151d", "clusterBorder": "#1f2937", "titleColor": "#e5e7eb", "nodeTextColor": "#e5e7eb"}}}%%
@@ -18,7 +18,7 @@ flowchart LR
 
   subgraph Power["Power Domains"]
     Logic5V["5 V logic supply"]
-    Logic33V["3.3 V ESP32 supply"]
+    NucPower["Intel NUC power"]
     LoadSupply["Load supply for heater and pump"]
   end
 
@@ -35,18 +35,15 @@ flowchart LR
     MotorDriver["Motor driver / MOSFET"]
   end
 
-  subgraph ESP32["ESP32 Relay / Communications Bridge"]
-    Uart2["UART2\nRX GPIO16 / TX GPIO17\n115200 baud"]
-    Wifi["Wi-Fi station"]
-    MqttClient["MQTT publisher"]
-    CommandPoller["HTTP command poller\nKILL / SET_ON / OTA / ARDUINO_OTA"]
-    EspOta["ESP32 OTA updater"]
-    ResetGpio["Optional Arduino RESET GPIO\nactive low"]
+  subgraph NUC["Intel NUC USB Gateway"]
+    UsbSerial["USB serial\n115200 baud"]
+    Parser["CSV parser\nJSON telemetry poster"]
+    CommandPoller["HTTP command poller\nKILL / SETPOINT / ARDUINO_OTA"]
+    Avrdude["avrdude Arduino flasher"]
   end
 
   subgraph LocalStack["Local Computer / Backend Stack"]
-    Mosquitto["Mosquitto MQTT broker\nmqtt://LAN_IP:1883"]
-    Flask["Flask backend\nMQTT subscriber + command API"]
+    Flask["Flask backend\ntelemetry + command API"]
     Postgres["PostgreSQL"]
     HMI["React HMI dashboard"]
   end
@@ -63,21 +60,18 @@ flowchart LR
   Heater --> Bath
   Pump --> Bath
 
-  Serial0 <-->|"CSV telemetry upstream\ncommand lines downstream"| Uart2
-  ResetGpio -.->|"optional reset pulse for future Arduino OTA"| Serial0
+  Serial0 <-->|"CSV telemetry upstream\ncommand lines downstream"| UsbSerial
 
-  Uart2 --> MqttClient
-  Wifi --> MqttClient
-  Wifi --> CommandPoller
-  Wifi --> EspOta
-  MqttClient -->|"scc/site/site_id/rig/rig_id/device/device_id/telemetry"| Mosquitto
+  UsbSerial --> Parser
+  UsbSerial --> Avrdude
+  Parser -->|"POST /api/telemetry"| Flask
   CommandPoller <-->|"HTTP polling / command JSON"| Flask
-  Mosquitto --> Flask
+  Avrdude <-->|"download artifact + ack status"| Flask
   Flask --> Postgres
   HMI <-->|"HTTP polling"| Flask
 
   Logic5V --> Arduino
-  Logic33V --> ESP32
+  NucPower --> NUC
   LoadSupply --> HeaterMosfet
   LoadSupply --> MotorDriver
 
@@ -93,15 +87,15 @@ flowchart LR
   class A0,D6,D9,Serial0 controller;
   class Control safety;
   class HeaterMosfet,MotorDriver driver;
-  class Uart2,Wifi,MqttClient,CommandPoller,EspOta,ResetGpio comm;
-  class Mosquitto,Flask,Postgres,HMI backend;
-  class Logic5V,Logic33V,LoadSupply power;
+  class UsbSerial,Parser,CommandPoller,Avrdude comm;
+  class Flask,Postgres,HMI backend;
+  class Logic5V,NucPower,LoadSupply power;
 
   style Rig fill:#0f151d,stroke:#1f2937,color:#e5e7eb
   style Power fill:#0b1118,stroke:#f59e0b,color:#e5e7eb
   style Arduino fill:#0f151d,stroke:#38bdf8,color:#e5e7eb
   style DriverStage fill:#0b1118,stroke:#f59e0b,color:#e5e7eb
-  style ESP32 fill:#0f151d,stroke:#38bdf8,color:#e5e7eb
+  style NUC fill:#0f151d,stroke:#38bdf8,color:#e5e7eb
   style LocalStack fill:#0f151d,stroke:#64748b,color:#e5e7eb
 ```
 
@@ -113,17 +107,15 @@ flowchart LR
 | Arduino D6 | Heater PWM | Drives heater MOSFET/driver. Firmware clamps heater PWM to `HEATER_PWM_MAX = 200`. |
 | Arduino D9 | Pump/motor PWM | Drives pump/motor driver. Startup kick is `180`, normal PWM is `155`. |
 | Arduino Serial | UART telemetry/commands | CSV telemetry is emitted at `115200` baud. Optional command handling supports bootloader prep when enabled. |
-| ESP32 GPIO16 | UART2 RX | Receives Arduino TX telemetry. |
-| ESP32 GPIO17 | UART2 TX | Sends backend command lines to Arduino. |
-| ESP32 configured GPIO | Optional Arduino RESET | Only used when `ARDUINO_RESET_GPIO >= 0`; active-low reset pulse for future Arduino OTA scaffolding. |
-| ESP32 Wi-Fi | MQTT + HTTP + OTA | Publishes telemetry to local MQTT, polls backend commands, and supports ESP32 OTA. |
+| Arduino USB | Serial telemetry/commands | Connects directly to the Intel NUC gateway. |
+| Intel NUC gateway | USB + HTTP | Parses telemetry, posts to Flask, polls commands, and flashes Arduino `.hex` artifacts with `avrdude`. |
 
 ## Backend Interface
 
-Telemetry is published by the ESP32 to:
+Telemetry is posted by the Intel NUC gateway to:
 
 ```text
-scc/site/<site_id>/rig/<rig_id>/device/<device_id>/telemetry
+POST /api/telemetry
 ```
 
 The backend stores raw telemetry first, then derives alarms, pump cycles, ML predictions, and MPC advisory state for the HMI.

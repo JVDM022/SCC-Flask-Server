@@ -2,7 +2,7 @@
 
 ## 11.1. Startup Checks
 
-Before starting a test run, verify that the heater, pump, thermistor, Arduino controller, ESP32 relay, backend, database, MQTT broker, and HMI dashboard are powered and communicating. Confirm that the latest telemetry updates in the dashboard, no critical alarm is active, and the manual kill state is clear.
+Before starting a test run, verify that the heater, pump, thermistor, Arduino controller, Intel NUC USB gateway, backend, database, and HMI dashboard are powered and communicating. Confirm that the latest telemetry updates in the dashboard, no critical alarm is active, and the manual kill state is clear.
 
 ## 11.2. Normal Operation
 
@@ -40,7 +40,7 @@ If any critical alarm occurs, the operator must prioritize physical safety over 
 - Pump status, motor PWM, pump recovery time, and last pump temperature drop shall be monitored to identify blocked flow, excessive cooling, or failed recovery.
 - Alarm status shall be reviewed through the active alarm panel during operation.
 - Event timeline entries for pump start, pump end, pump recovery, hard kill, and sensor fault events shall be reviewed after each test run.
-- MQTT/backend connectivity shall be checked if dashboard values stop updating.
+- NUC gateway and backend connectivity shall be checked if dashboard values stop updating.
 - PostgreSQL data logging shall be verified by confirming that recent telemetry appears in the history and latest telemetry endpoints.
 - Operators shall remain near the rig during active heating unless an independent physical safety cutoff and approved unattended-operation procedure are in place.
 - Any abnormal noise, smell, overheating, fluid leak, unexpected pump behavior, or stale telemetry shall trigger test pause or shutdown.

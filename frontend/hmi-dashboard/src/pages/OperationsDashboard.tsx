@@ -37,7 +37,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
   return (
     <main className="workspace">
       <section className="metric-grid top-metrics">
-        <MetricCard icon={Thermometer} label="Current Temperature" value={formatNumber(latest?.temp_c)} unit="C" tone="accent" detail="Live ESP32 telemetry" />
+        <MetricCard icon={Thermometer} label="Current Temperature" value={formatNumber(latest?.temp_c)} unit="C" tone="accent" detail="Live Arduino USB telemetry" />
         <MetricCard icon={Gauge} label="Setpoint" value={formatNumber(latest?.setpoint_c)} unit="C" detail="Controller target" />
         <MetricCard icon={Activity} label="Temperature Error" value={formatNumber(tempError)} unit="C" tone={Math.abs(tempError || 0) > 5 ? 'warning' : 'default'} detail="Measured minus target" />
         <MetricCard icon={Flame} label="Heater PWM" value={latest?.heater_pwm ?? '--'} unit="/255" detail="Current actuator command" />
@@ -49,7 +49,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <div className="panel__header">
           <div>
             <h2>Manual Emergency Control</h2>
-            <p>Queues a manual kill command for the ESP32 relay to forward to the Arduino controller</p>
+            <p>Queues a manual kill command for the Intel NUC gateway to forward to the Arduino controller</p>
           </div>
           <ShieldAlert size={20} />
         </div>

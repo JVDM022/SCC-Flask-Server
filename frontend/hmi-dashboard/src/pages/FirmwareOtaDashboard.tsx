@@ -48,7 +48,7 @@ function UploadPanel({
   onUploaded: (artifact: FirmwareArtifact) => void;
 }) {
   const queryClient = useQueryClient();
-  const [target, setTarget] = useState<FirmwareTarget>('ESP32');
+  const [target, setTarget] = useState<FirmwareTarget>('ARDUINO');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState('');
   const accept = target === 'ESP32' ? '.bin' : '.hex';
@@ -84,7 +84,7 @@ function UploadPanel({
       <div className="panel__header">
         <div>
           <h2>Firmware Upload</h2>
-          <p>Store a firmware artifact, then queue an OTA command for the ESP32 relay to poll.</p>
+          <p>Store a firmware artifact, then queue an OTA command for the Intel NUC gateway.</p>
         </div>
         <FileUp size={20} />
       </div>
@@ -93,8 +93,8 @@ function UploadPanel({
         {target === 'ARDUINO' ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
         <span>
           {target === 'ARDUINO'
-            ? 'Arduino .hex upload is supported, but Arduino flashing is scaffolding only unless the ESP32 STK500/Optiboot flasher has been implemented.'
-            : 'ESP32 .bin OTA can update the ESP32 when ESP32 firmware supports OTA download from URL.'}
+            ? 'Arduino .hex uploads are flashed by the Intel NUC over the Arduino USB port.'
+            : 'ESP32 .bin OTA remains available for legacy relay deployments.'}
         </span>
       </div>
 
@@ -109,8 +109,8 @@ function UploadPanel({
               setMessage('');
             }}
           >
-            <option value="ESP32">ESP32</option>
             <option value="ARDUINO">Arduino</option>
+            <option value="ESP32">ESP32 legacy</option>
           </select>
         </label>
 
@@ -228,7 +228,7 @@ function FirmwareTable({ devices }: { devices: FirmwareDevice[] }) {
               </tr>
             ))
           ) : (
-            <tr><td colSpan={10}>No ESP32 firmware heartbeat has been received.</td></tr>
+            <tr><td colSpan={10}>No firmware gateway heartbeat has been received.</td></tr>
           )}
         </tbody>
       </table>
@@ -387,7 +387,7 @@ export function FirmwareOtaDashboard() {
       ) : null}
 
       <section className="metric-grid firmware-metrics">
-        <MetricCard label="Devices" value={status?.device_count ?? 0} icon={Cpu} detail="ESP32 records tracked" />
+        <MetricCard label="Devices" value={status?.device_count ?? 0} icon={Cpu} detail="Gateway records tracked" />
         <MetricCard label="Online" value={status?.online_count ?? 0} icon={RadioTower} tone="success" detail="Heartbeat inside live window" />
         <MetricCard label="PlatformIO Env" value={valueOrDash(status?.platformio_env)} icon={TerminalSquare} tone="accent" detail="Build/upload environment" />
         <MetricCard label="Firmware Source" value={valueOrDash(status?.firmware_source_dir)} icon={FolderGit2} detail="Run PlatformIO here" />
@@ -399,7 +399,7 @@ export function FirmwareOtaDashboard() {
         <div className="panel__header">
           <div>
             <h2>Device Status</h2>
-            <p>Firmware version, build metadata, heartbeat, and reported OTA state from ESP32/backend status messages.</p>
+            <p>Firmware version, build metadata, heartbeat, and reported OTA state from gateway/backend status messages.</p>
           </div>
           <UploadCloud size={20} />
         </div>
@@ -420,7 +420,7 @@ export function FirmwareOtaDashboard() {
         <div className="panel__header">
           <div>
             <h2>Queued Commands</h2>
-            <p>Pending, sent, and acknowledged firmware commands polled by the ESP32 relay.</p>
+            <p>Pending, sent, and acknowledged firmware commands polled by the gateway.</p>
           </div>
         </div>
         <CommandTable commands={commandQuery.data || []} />
@@ -429,8 +429,8 @@ export function FirmwareOtaDashboard() {
       <section className="panel">
         <div className="panel__header">
           <div>
-            <h2>PlatformIO OTA Command Helper</h2>
-            <p>Copy and run from the firmware source directory. The dashboard does not upload firmware binaries.</p>
+            <h2>Firmware Command Helper</h2>
+            <p>Reference command for manual upload or troubleshooting outside the queued gateway flow.</p>
           </div>
           <TerminalSquare size={20} />
         </div>
@@ -443,11 +443,11 @@ export function FirmwareOtaDashboard() {
             <div className="command-card__header">
               <div>
                 <span>Command format</span>
-                <strong>Waiting for device IP</strong>
+                <strong>Waiting for gateway heartbeat</strong>
               </div>
               <CheckCircle2 size={18} />
             </div>
-            <code>pio run -t upload --upload-port &lt;ESP32_IP_ADDRESS&gt;</code>
+            <code>avrdude -v -p atmega328p -c arduino -P &lt;ARDUINO_USB_PORT&gt; -b 115200 -D -U flash:w:&lt;artifact.hex&gt;:i</code>
             <div className="command-meta">
               <div><span>PlatformIO env</span><strong>{valueOrDash(status?.platformio_env)}</strong></div>
               <div><span>Firmware source</span><strong>{valueOrDash(status?.firmware_source_dir)}</strong></div>

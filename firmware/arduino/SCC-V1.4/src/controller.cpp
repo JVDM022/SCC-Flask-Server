@@ -10,6 +10,7 @@ bool heaterLockout = false;
 
 // Active PID setpoint ramps from tune target to final setpoint
 int16_t activeSetpointCx100 = PID_RAMP_START_Cx100;
+int16_t targetSetpointCx100 = SETPOINT_Cx100;
 ControlMode controlMode = CTRL_AUTOTUNE_WARMUP;
 
 // PID terms
@@ -133,6 +134,22 @@ void finishAutotune(uint32_t now, int16_t tempCx100) {
   controlMode = CTRL_PID_RAMP;
 }
 
+bool setTargetSetpointCx100(int16_t setpointCx100) {
+  if (setpointCx100 < SAFE_TEMP_LOW_Cx100 || setpointCx100 > OFF_LOCKOUT_HIGH_Cx100) {
+    return false;
+  }
+
+  targetSetpointCx100 = setpointCx100;
+  if (activeSetpointCx100 > targetSetpointCx100) {
+    activeSetpointCx100 = targetSetpointCx100;
+    controlMode = CTRL_PID_HOLD;
+    pidIntegral = 0.0f;
+  } else if (controlMode == CTRL_PID_HOLD && activeSetpointCx100 < targetSetpointCx100) {
+    controlMode = CTRL_PID_RAMP;
+  }
+  return true;
+}
+
 uint8_t computeAutotunePwm(int16_t tempCx100, uint32_t now) {
   if ((now - autotuneStartMs) > AUTOTUNE_TIMEOUT_MS) {
     finishAutotune(now, tempCx100);
@@ -208,18 +225,18 @@ uint8_t computePidPwm(int16_t tempCx100, uint32_t now) {
     int16_t stepCx100 = (int16_t)(step + 0.5f);
     if (stepCx100 < 1) stepCx100 = 1;
 
-    if (activeSetpointCx100 < SETPOINT_Cx100) {
+    if (activeSetpointCx100 < targetSetpointCx100) {
       activeSetpointCx100 += stepCx100;
-      if (activeSetpointCx100 >= SETPOINT_Cx100) {
-        activeSetpointCx100 = SETPOINT_Cx100;
+      if (activeSetpointCx100 >= targetSetpointCx100) {
+        activeSetpointCx100 = targetSetpointCx100;
         controlMode = CTRL_PID_HOLD;
       }
     } else {
-      activeSetpointCx100 = SETPOINT_Cx100;
+      activeSetpointCx100 = targetSetpointCx100;
       controlMode = CTRL_PID_HOLD;
     }
   } else {
-    activeSetpointCx100 = SETPOINT_Cx100;
+    activeSetpointCx100 = targetSetpointCx100;
   }
 
   if (heaterLockout || tempCx100 >= activeSetpointCx100) {

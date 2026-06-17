@@ -18,6 +18,7 @@ xgboost
 lightgbm
 alembic
 paho-mqtt
+pyserial
 Flask-SocketIO
 simple-websocket
 pytest

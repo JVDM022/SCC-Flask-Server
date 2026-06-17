@@ -1,6 +1,6 @@
 # 8. Safety Analysis
 
-The SCC control platform is designed so safety-critical decisions remain on the hardware side of the system. The Arduino controller and electrical interlocks own heater and pump shutdown behavior. The ESP32, Flask backend, database, HMI, ML model, and MPC service provide communication, monitoring, logging, alarms, and advisory recommendations only.
+The SCC control platform is designed so safety-critical decisions remain on the hardware side of the system. The Arduino controller and electrical interlocks own heater and pump shutdown behavior. The Intel NUC gateway, ESP32 legacy relay, Flask backend, database, HMI, ML model, and MPC service provide communication, monitoring, logging, alarms, and advisory recommendations only.
 
 Backend alarms and dashboard notifications improve operator visibility, but they are not the primary protection layer. The rig must remain safe if the network, MQTT broker, database, server, HMI, ML model, or MPC endpoint fails.
 
@@ -23,7 +23,7 @@ Backend alarms and dashboard notifications improve operator visibility, but they
 
 - **Heater lockout:** Heater output is forced off when the measured temperature reaches `128.50 C`. Lockout clears only after the bath cools to `126.50 C`.
 - **Hard kill threshold:** At `130.00 C`, firmware forces heater PWM to `0`, stops the motor output, clears pump command, sets heater lockout, clears the PID integral term, and emits a hard-kill event.
-- **Manual kill command:** The backend/HMI can queue a `KILL 1` command through the ESP32 relay. When received by the Arduino, this immediately disables heater and motor outputs and prevents new pump activity.
+- **Manual kill command:** The backend/HMI can queue a `KILL 1` command through the Intel NUC gateway. When received by the Arduino, this immediately disables heater and motor outputs and prevents new pump activity.
 - **Sensor fault detection:** ADC values near the rails are treated as thermistor faults. During a fault, the controller disables heater and motor outputs, sets lockout, and reports a `SENSOR_FAULT` event.
 - **Safe startup sequence:** On boot, heater and motor outputs are set off before control state is initialized. Autotune begins from a known state, with telemetry header output enabled for monitoring.
 - **Pump temperature gating:** Pump dosing only occurs when the bath has enough thermal headroom. The pump is disabled below the low threshold and is not allowed near the hard-kill limit.

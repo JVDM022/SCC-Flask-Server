@@ -148,16 +148,22 @@ def device_to_dict(device: FirmwareDevice) -> dict[str, Any]:
     if device.last_heartbeat:
         online = online and datetime.utcnow() - device.last_heartbeat <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
 
-    upload_port = device.ip_address or "<device_ip>"
-    if device.ip_address and device.ota_port:
-        upload_port = f"{device.ip_address}:{device.ota_port}"
+    is_nuc_gateway = "nuc" in (device.device_id or "").lower() or (device.platformio_env or "").lower() == "uno"
+    if is_nuc_gateway:
+        upload_port = device.ota_port or "<arduino_usb_port>"
+        ota_command = f"avrdude -v -p atmega328p -c arduino -P {upload_port} -b 115200 -D -U flash:w:<artifact.hex>:i"
+    else:
+        upload_port = device.ip_address or "<device_ip>"
+        if device.ip_address and device.ota_port:
+            upload_port = f"{device.ip_address}:{device.ota_port}"
+        ota_command = f"pio run -t upload --upload-port {upload_port}"
 
     row.update(
         {
             "online": online,
             "online_status": "Online" if online else "Offline",
             "last_known_ip": device.ip_address or "",
-            "ota_command": f"pio run -t upload --upload-port {upload_port}",
+            "ota_command": ota_command,
         }
     )
     return row

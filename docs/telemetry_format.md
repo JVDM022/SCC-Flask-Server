@@ -1,6 +1,6 @@
 # Telemetry Format
 
-The ESP32 may post either a header plus row or a row without a header. If the header is missing, the backend parses values using this fixed column order:
+The Arduino emits CSV telemetry over USB. The Intel NUC gateway parses each row and posts JSON to the backend. CSV import tools may provide either a header plus row or a row without a header. If the header is missing, the backend parses values using this fixed column order:
 
 ```text
 event,ms,temp_c,adc,dtemp_c_per_s,setpoint_c,mode,heater_pwm,heating,heater_lockout,pump_enabled,pump_allowed,pump_on,motor_pwm,motor_on_ms,motor_period_ms,temp_before_pump_c,min_temp_after_pump_c,last_pump_drop_c,recovery_time_s,manual_kill,hard_kill,uptime_s

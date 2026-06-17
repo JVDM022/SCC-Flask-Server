@@ -188,14 +188,34 @@ void test_pid_lockout_disables_output_and_clears_integral() {
 void test_pid_ramp_advances_to_final_hold() {
   resetAutotune(1000);
   controlMode = CTRL_PID_RAMP;
-  activeSetpointCx100 = SETPOINT_Cx100 - 1;
+  targetSetpointCx100 = SETPOINT_Cx100;
+  activeSetpointCx100 = targetSetpointCx100 - 1;
   pidLastMs = 2000;
-  pidLastTempC = (SETPOINT_Cx100 - 200) / 100.0f;
+  pidLastTempC = (targetSetpointCx100 - 200) / 100.0f;
 
-  (void)computePidPwm(SETPOINT_Cx100 - 200, 3000);
+  (void)computePidPwm(targetSetpointCx100 - 200, 3000);
 
-  TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100, activeSetpointCx100);
+  TEST_ASSERT_EQUAL_INT16(targetSetpointCx100, activeSetpointCx100);
   TEST_ASSERT_EQUAL_UINT8(CTRL_PID_HOLD, controlMode);
+}
+
+void test_runtime_setpoint_rejects_out_of_safe_band() {
+  targetSetpointCx100 = SETPOINT_Cx100;
+
+  TEST_ASSERT_FALSE(setTargetSetpointCx100(SAFE_TEMP_LOW_Cx100 - 1));
+  TEST_ASSERT_FALSE(setTargetSetpointCx100(OFF_LOCKOUT_HIGH_Cx100 + 1));
+  TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100, targetSetpointCx100);
+}
+
+void test_runtime_setpoint_updates_target_and_can_restart_ramp() {
+  resetAutotune(1000);
+  controlMode = CTRL_PID_HOLD;
+  activeSetpointCx100 = SAFE_TEMP_LOW_Cx100;
+
+  TEST_ASSERT_TRUE(setTargetSetpointCx100(SAFE_TEMP_LOW_Cx100 + 200));
+
+  TEST_ASSERT_EQUAL_INT16(SAFE_TEMP_LOW_Cx100 + 200, targetSetpointCx100);
+  TEST_ASSERT_EQUAL_UINT8(CTRL_PID_RAMP, controlMode);
 }
 
 void test_telemetry_header_column_count_matches_schema_constant() {
@@ -269,6 +289,8 @@ static void runFunctionTests() {
   RUN_TEST(test_pid_first_sample_initializes_without_output);
   RUN_TEST(test_pid_lockout_disables_output_and_clears_integral);
   RUN_TEST(test_pid_ramp_advances_to_final_hold);
+  RUN_TEST(test_runtime_setpoint_rejects_out_of_safe_band);
+  RUN_TEST(test_runtime_setpoint_updates_target_and_can_restart_ramp);
   RUN_TEST(test_telemetry_header_column_count_matches_schema_constant);
   RUN_TEST(test_telemetry_header_uses_expected_column_order);
   RUN_TEST(test_bootloader_entry_accepts_supported_commands);

@@ -32,7 +32,11 @@ def _filter_telemetry_payload(payload: dict) -> dict:
     missing = [key for key in TELEMETRY_COLUMNS if key not in payload]
     if missing:
         raise ValueError(f"Missing telemetry fields: {', '.join(missing)}")
-    return {key: payload[key] for key in TELEMETRY_COLUMNS}
+    row = {key: payload[key] for key in TELEMETRY_COLUMNS}
+    for key in ("site_id", "rig_id", "device_id", "mqtt_topic", "raw_payload"):
+        if key in payload:
+            row[key] = payload[key]
+    return row
 
 
 def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
@@ -307,6 +311,6 @@ def control_manual_kill():
             "type": "KILL",
             "value": command.value,
             "manual_kill": enabled,
-            "warning": "Manual kill commands are polled by the ESP32 and enforced by Arduino firmware.",
+            "warning": "Manual kill commands are polled by the Intel NUC gateway and enforced by Arduino firmware.",
         }
     )

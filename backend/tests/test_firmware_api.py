@@ -6,7 +6,7 @@ import pytest
 
 from app import create_app
 from app.database.db import db
-from app.database.models import FirmwareArtifact, FirmwareCommand
+from app.database.models import ControlCommand, FirmwareArtifact, FirmwareCommand
 
 
 class TestConfig:
@@ -76,7 +76,7 @@ def test_arduino_accepts_hex(client):
     body = response.get_json()
     assert body["target"] == "ARDUINO"
     assert body["filename"].endswith(".hex")
-    assert "scaffolding" in body["notes"]
+    assert "Intel NUC" in body["notes"]
 
 
 def test_firmware_command_queue_and_ack(client):
@@ -100,3 +100,37 @@ def test_firmware_command_queue_and_ack(client):
     with client.application.app_context():
         assert FirmwareArtifact.query.count() == 1
         assert FirmwareCommand.query.first().ack_status == "success"
+
+
+def test_nuc_only_fetches_arduino_firmware_commands(client):
+    esp32_response = upload(client, "ESP32", "relay.bin", b"firmware")
+    arduino_response = upload(client, "ARDUINO", "controller.hex", b":00000001FF")
+
+    client.post("/api/firmware/commands", json={"target": "ESP32", "artifactId": esp32_response.get_json()["artifactId"]})
+    client.post(
+        "/api/firmware/commands",
+        json={"target": "ARDUINO", "artifactId": arduino_response.get_json()["artifactId"]},
+    )
+
+    next_response = client.get("/api/firmware/commands/next?device=nuc")
+
+    assert next_response.status_code == 200
+    body = next_response.get_json()
+    assert body["type"] == "ARDUINO_OTA"
+
+    with client.application.app_context():
+        assert FirmwareCommand.query.filter_by(target="ESP32").first().status == "pending"
+        assert FirmwareCommand.query.filter_by(target="ARDUINO").first().status == "sent"
+
+
+def test_nuc_fetches_setpoint_control_commands(client):
+    with client.application.app_context():
+        db.session.add(ControlCommand(command_type="SETPOINT", value=0, setpoint_c=124.5))
+        db.session.commit()
+
+    response = client.get("/api/firmware/commands/next?device=nuc")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["type"] == "SETPOINT"
+    assert body["setpoint_c"] == 124.5

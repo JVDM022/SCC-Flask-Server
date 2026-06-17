@@ -10,7 +10,7 @@
 
 **Storage:** Minimum 10 GB free disk space. Twenty GB or more is recommended to allow PostgreSQL data growth, Docker images, firmware artifacts, logs, and model files.
 
-**Network:** The server must be reachable from the ESP32 relay over the local network. Required local ports are `1883` for MQTT, `5050` for the backend API, `5173` for the dashboard, and `5432` for PostgreSQL if direct database access is needed.
+**Network:** The Intel NUC gateway must be able to reach the backend API. Required local ports are `5050` for the backend API, `5173` for the dashboard, and `5432` for PostgreSQL if direct database access is needed. Port `1883` is only required when using the legacy ESP32 MQTT relay.
 
 **Software:** Docker Engine or Docker Desktop with Docker Compose support. For non-Docker development, Python `3.11`, Node.js `22`, PostgreSQL, Mosquitto, and the backend Python dependencies are required.
 
@@ -21,7 +21,7 @@
 | Backend | `backend/Dockerfile` using Python `3.11-slim` | `5050:5000` | Runs the Flask/Gunicorn API, MQTT subscriber, telemetry parser, alarm rules, ML prediction, MPC advisory logic, and firmware command APIs |
 | Frontend | `node:22-alpine` | `5173:5173` | Runs the React/Vite HMI dashboard for live monitoring, alarms, trends, MPC, ML, equipment health, settings, and firmware views |
 | PostgreSQL | `postgres:16` | `5432:5432` | Stores telemetry, alarms, events, pump-cycle records, predictions, command state, and other backend data |
-| MQTT Broker | `eclipse-mosquitto:2` | `1883:1883`, `9001:9001` | Receives ESP32 telemetry messages and exposes MQTT/WebSocket transport for local communication |
+| MQTT Broker | `eclipse-mosquitto:2` | `1883:1883`, `9001:9001` | Receives legacy ESP32 telemetry messages and exposes MQTT/WebSocket transport for local communication |
 | Cloudflare Tunnel | `cloudflare/cloudflared:latest` | outbound tunnel | Optional public access layer for the backend and dashboard when `CLOUDFLARE_TUNNEL_TOKEN` is configured |
 
 ## 10.3. Deployment Procedure
@@ -73,14 +73,11 @@
    MQTT broker: localhost:1883
    ```
 
-7. Configure the ESP32 relay firmware to publish telemetry to the MQTT broker.
+7. Start the Intel NUC USB gateway on the host connected to the Arduino.
 
-   ```c
-   #define MQTT_BROKER_URI "mqtt://<server-lan-ip>:1883"
-   #define MQTT_BASE_TOPIC "scc"
-   #define MQTT_SITE_ID "site-01"
-   #define MQTT_RIG_ID "rig-01"
-   #define MQTT_DEVICE_ID "esp32-relay-01"
+   ```bash
+   cd backend
+   python -m app.services.nuc_gateway --serial-port /dev/ttyACM0 --api-base-url http://localhost:5050
    ```
 
 8. Verify connectivity by confirming that telemetry reaches the backend and appears in the dashboard.
@@ -94,7 +91,6 @@
    ```bash
    pytest backend/tests
    pio test -d firmware/arduino/SCC-V1.4 -e native
-   pio test -d firmware/esp32/ESP32-Relay -e native
    ```
 
 10. For production or remote access, configure the Cloudflare tunnel token in `.env` and confirm the public URLs route to the backend and frontend services.
@@ -110,8 +106,9 @@
 | Backend health/API access | Backend responds on `http://localhost:5050` |
 | Dashboard access | HMI loads on `http://localhost:5173` |
 | Database startup | PostgreSQL container reports healthy |
-| MQTT broker availability | ESP32 can connect to `<server-lan-ip>:1883` |
-| Latest telemetry | `/api/latest` returns the most recent telemetry row after device publishing begins |
+| NUC gateway connectivity | Gateway logs show Arduino serial reads and successful backend telemetry posts |
+| MQTT broker availability | Required only for legacy ESP32 relay deployments |
+| Latest telemetry | `/api/latest` returns the most recent telemetry row after gateway publishing begins |
 | Alarm display | Active safety alarms appear in backend API responses and the dashboard |
 | Manual kill command | `KILL 1` command can be queued only when write authentication is configured |
 | Data persistence | PostgreSQL volume `postgres-data` persists after container restart |

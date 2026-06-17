@@ -193,6 +193,18 @@ static void handleSerialCommandLine(char *line) {
       pumpOnCmd = false;
       pumpCmdPwm = 0;
     }
+    return;
+  }
+
+  if (strncmp(line, "SETPOINT", 8) == 0) {
+    float valueC = atof(line + 8);
+    int16_t valueCx100 = (int16_t)((valueC * 100.0f) + (valueC >= 0.0f ? 0.5f : -0.5f));
+    if (setTargetSetpointCx100(valueCx100)) {
+      Serial.print(F("SETPOINT_OK "));
+      Serial.println(targetSetpointCx100 / 100.0f, 2);
+    } else {
+      Serial.println(F("SETPOINT_REJECTED"));
+    }
   }
 }
 
