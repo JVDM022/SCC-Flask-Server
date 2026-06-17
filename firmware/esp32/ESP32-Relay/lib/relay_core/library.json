@@ -1,7 +1,0 @@
-{
-  "name": "relay_core",
-  "version": "0.1.0",
-  "build": {
-    "srcDir": "src"
-  }
-}
