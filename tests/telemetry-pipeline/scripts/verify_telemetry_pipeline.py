@@ -143,7 +143,7 @@ def compare_rows(expected_rows: list[dict[str, Any]], stored_rows: list[dict[str
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Verify Arduino CSV telemetry matches rows stored by Flask in PostgreSQL."
+        description="Verify Arduino mock CSV telemetry posted by the NUC gateway matches rows stored by Flask in PostgreSQL."
     )
     parser.add_argument("--source", required=True, type=Path, help="Arduino CSV file to compare.")
     parser.add_argument("--database-url", required=True, help="PostgreSQL SQLAlchemy URL.")
@@ -151,7 +151,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=("verify-db", "post-and-verify"),
         default="verify-db",
-        help="verify-db compares latest rows already posted by ESP32; post-and-verify posts source rows first.",
+        help="verify-db compares latest rows already posted by the NUC gateway; post-and-verify posts source rows first.",
     )
     parser.add_argument("--api-url", default="http://localhost:5050/api/telemetry", help="Flask telemetry POST URL.")
     parser.add_argument("--api-key", default="", help="Backend API_WRITE_KEY for post-and-verify mode.")

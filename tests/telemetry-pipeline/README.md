@@ -1,70 +1,66 @@
 # Telemetry Pipeline Test Section
 
-This section is isolated from `firmware/`. It is for testing only:
+This section is isolated from `firmware/`. It is for testing the live NUC path only:
 
 ```text
-Arduino test source -> ESP32 parser/HTTP relay -> Flask /api/telemetry -> PostgreSQL
+Arduino mock telemetry source -> Intel NUC gateway -> Flask /api/telemetry -> PostgreSQL
 ```
 
-It does not start or call the HMI, ML prediction, or MPC endpoints. The verifier reads PostgreSQL directly and compares the final stored telemetry rows with the original Arduino CSV rows.
+It does not start or call the HMI, ML prediction, or MPC endpoints. The verifier reads PostgreSQL directly and compares the final stored telemetry rows with the original Arduino CSV fixture.
 
-## Test Projects
+## Test Project
 
-- `Firmwares/Arduino Software Testing`: Arduino Uno project that emits deterministic SCC telemetry CSV rows.
-- `Firmwares/ESP32 Software Testing`: ESP32 DOIT DevKit V1 project that reads Arduino CSV on UART2, parses it with the same `relay_core` library used by the real ESP32 firmware, and posts JSON to Flask.
+- `Firmwares/Arduino Software Testing`: Arduino Uno project that emits one repeatable mock telemetry package over USB serial.
 
-Board choices mirror the existing firmware projects:
+The mock package contains:
+
+```text
+MOCK_TELEMETRY_PACKAGE_BEGIN <n>
+event,ms,temp_c,...
+<fixture row 1>
+<fixture row 2>
+<fixture row 3>
+MOCK_TELEMETRY_PACKAGE_END <n>
+```
+
+The NUC gateway ignores the package marker and header lines, parses the three CSV rows, and posts JSON telemetry to Flask.
+
+Board choice:
 
 - Arduino: `uno`
-- ESP32: `esp32doit-devkit-v1`
 
 ## Hardware Wiring
 
-Use common ground.
+Connect the Arduino Uno directly to the Intel NUC over USB. No ESP32, UART jumper wiring, or Wi-Fi test firmware is used for this pipeline test.
 
-```text
-Arduino TX1 / D1  -> ESP32 RX2 / GPIO16
-Arduino GND      -> ESP32 GND
-```
+## Backend and NUC Gateway Setup
 
-The ESP32 test firmware does not send commands back to Arduino, so Arduino RX wiring is optional for this test.
+Start the backend and make sure PostgreSQL is available. If write authentication is enabled, set the same `API_WRITE_KEY` for the backend and the NUC gateway.
 
-## Configure ESP32 Test Wi-Fi and Flask URL
-
-Copy the example config and fill in your values:
+In a terminal on the NUC, run the gateway against the Arduino USB port:
 
 ```bash
-cp "tests/telemetry-pipeline/Firmwares/ESP32 Software Testing/include/test_config.example.h" \
-   "tests/telemetry-pipeline/Firmwares/ESP32 Software Testing/include/test_config.h"
+cd backend
+python -m app.services.nuc_gateway \
+  --serial-port /dev/ttyACM0 \
+  --api-base-url http://localhost:5050
 ```
 
-Set:
+Use `/dev/ttyUSB0` or the macOS `/dev/cu.usbmodem*` path if that is where the Arduino appears. Use `http://localhost:5000` when running Flask directly instead of through Docker port mapping.
 
-- `TEST_WIFI_SSID`
-- `TEST_WIFI_PASSWORD`
-- `TEST_FLASK_TELEMETRY_URL`, usually `http://<your-computer-ip>:5050/api/telemetry`
-- `TEST_API_WRITE_KEY`, matching backend `API_WRITE_KEY`
-
-## Build and Upload
+## Build and Upload the Arduino Mock Source
 
 From `scc-control-platform`:
 
 ```bash
 pio run -d "tests/telemetry-pipeline/Firmwares/Arduino Software Testing" -t upload
-pio run -d "tests/telemetry-pipeline/Firmwares/ESP32 Software Testing" -t upload
 ```
 
-Open the ESP32 monitor:
-
-```bash
-pio device monitor -d "tests/telemetry-pipeline/Firmwares/ESP32 Software Testing" -b 115200
-```
-
-You should see `SOURCE_CSV`, `POST_JSON`, and `POST_OK` lines.
+Once the Arduino resets, it repeatedly sends the mock telemetry package over USB. The NUC gateway should log parsed telemetry posts.
 
 ## Verify PostgreSQL Rows Match Arduino CSV
 
-After the ESP32 posts the rows, run:
+After the NUC gateway posts at least one mock package, run:
 
 ```bash
 python3 tests/telemetry-pipeline/scripts/verify_telemetry_pipeline.py \
@@ -73,7 +69,7 @@ python3 tests/telemetry-pipeline/scripts/verify_telemetry_pipeline.py \
   --mode verify-db
 ```
 
-For a backend-only smoke test without hardware, the same verifier can post the sample rows directly to Flask and then compare PostgreSQL:
+For a backend-only smoke test without Arduino hardware, the same verifier can post the sample rows directly to Flask and then compare PostgreSQL:
 
 ```bash
 python3 tests/telemetry-pipeline/scripts/verify_telemetry_pipeline.py \
