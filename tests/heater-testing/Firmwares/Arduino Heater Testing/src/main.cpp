@@ -5,10 +5,10 @@
 #define THERM_PIN A0
 #define HEATER_PWM_PIN 6
 
-#define TARGET_TEMP_C 120.0f
+#define TARGET_TEMP_C 40.0f
 #define HEATER_PWM_MAX 200
-#define HEATER_KILL_C 130.0f
-#define HEATER_UNLOCK_C 126.5f
+#define HEATER_KILL_C 50.0f
+#define HEATER_UNLOCK_C 45.5f
 
 #define TF_M_C_PER_ADC (-0.1871f)
 #define TF_B_C 167.97f
