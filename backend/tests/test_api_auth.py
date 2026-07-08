@@ -120,3 +120,17 @@ def test_telemetry_json_keeps_gateway_metadata(client):
         assert telemetry.device_id == "intel-nuc-gateway"
         assert telemetry.site_id == "site-01"
         assert telemetry.raw_payload["source"] == "arduino_usb"
+
+
+def test_telemetry_json_accepts_partial_payload(client):
+    response = client.post(
+        "/api/telemetry",
+        json={"event": 0, "ms": 123456, "temp_c": 126.42},
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 200
+    with client.application.app_context():
+        telemetry = Telemetry.query.order_by(Telemetry.id.desc()).first()
+        assert telemetry.temp_c == 126.42
+        assert telemetry.adc is None

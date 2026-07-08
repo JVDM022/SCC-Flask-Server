@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from io import StringIO
 
 
@@ -69,6 +70,11 @@ def _read_csv_values(line: str) -> list[str]:
     return [value.strip() for value in values]
 
 
+def _parse_float(raw_value: str) -> float | None:
+    value = float(raw_value)
+    return value if math.isfinite(value) else None
+
+
 def parse_csv_line(line: str) -> dict | None:
     stripped = line.strip()
     if not stripped:
@@ -82,15 +88,16 @@ def parse_csv_line(line: str) -> dict | None:
             f"Expected {len(TELEMETRY_COLUMNS)} telemetry values, got {len(values)}: {stripped}"
         )
 
-    parsed: dict[str, int | float] = {}
+    parsed: dict[str, int | float | None] = {}
     for column, raw_value in zip(TELEMETRY_COLUMNS, values):
         if raw_value == "":
-            raise ValueError(f"Missing value for telemetry field '{column}'")
+            parsed[column] = None
+            continue
         try:
             if column in INTEGER_FIELDS:
                 parsed[column] = int(raw_value)
             elif column in FLOAT_FIELDS:
-                parsed[column] = float(raw_value)
+                parsed[column] = _parse_float(raw_value)
             else:
                 raise ValueError(f"Unknown telemetry field '{column}'")
         except ValueError as exc:

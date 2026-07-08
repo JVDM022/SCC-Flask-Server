@@ -42,3 +42,22 @@ def test_numeric_conversion_types():
     assert isinstance(parsed["adc"], int)
     assert isinstance(parsed["temp_c"], float)
     assert isinstance(parsed["dtemp_c_per_s"], float)
+
+
+def test_blank_csv_value_is_preserved_as_none():
+    values = ROW.split(",")
+    values[2] = ""
+
+    parsed = parse_csv_line(",".join(values))
+
+    assert parsed["temp_c"] is None
+    assert parsed["setpoint_c"] == 125.0
+
+
+def test_non_finite_csv_float_is_preserved_as_none():
+    values = ROW.split(",")
+    values[16] = "nan"
+
+    parsed = parse_csv_line(",".join(values))
+
+    assert parsed["temp_before_pump_c"] is None

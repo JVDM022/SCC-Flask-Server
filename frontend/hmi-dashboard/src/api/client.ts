@@ -17,6 +17,31 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 const API_WRITE_KEY = import.meta.env.VITE_API_WRITE_KEY || '';
+const TELEMETRY_FIELDS = [
+  'event',
+  'ms',
+  'temp_c',
+  'adc',
+  'dtemp_c_per_s',
+  'setpoint_c',
+  'mode',
+  'heater_pwm',
+  'heating',
+  'heater_lockout',
+  'pump_enabled',
+  'pump_allowed',
+  'pump_on',
+  'motor_pwm',
+  'motor_on_ms',
+  'motor_period_ms',
+  'temp_before_pump_c',
+  'min_temp_after_pump_c',
+  'last_pump_drop_c',
+  'recovery_time_s',
+  'manual_kill',
+  'hard_kill',
+  'uptime_s',
+] as const;
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`);
@@ -43,15 +68,32 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function normalizeLatest(value: Telemetry | { status?: string }): Telemetry | null {
+function settledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
+  return result.status === 'fulfilled' ? result.value : fallback;
+}
+
+function normalizeTelemetry(value: Partial<Telemetry> | { status?: string } | null | undefined): Telemetry | null {
   if (!value || value.status === 'unavailable') {
     return null;
   }
-  return value as Telemetry;
+  const normalized = { ...value } as Record<string, unknown>;
+  for (const field of TELEMETRY_FIELDS) {
+    if (normalized[field] === undefined) {
+      normalized[field] = null;
+    }
+  }
+  return normalized as unknown as Telemetry;
+}
+
+function normalizeTelemetryList(value: unknown): Telemetry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => normalizeTelemetry(item)).filter((item): item is Telemetry => item !== null);
 }
 
 export async function fetchDashboardData(): Promise<DashboardData> {
-  const [latest, history, alarms, events, cycles, prediction, mpc] = await Promise.all([
+  const [latestResult, historyResult, alarmsResult, eventsResult, cyclesResult, predictionResult, mpcResult] = await Promise.allSettled([
     getJson<Telemetry | { status?: string }>('/latest'),
     getJson<Telemetry[]>('/history?minutes=180'),
     getJson<Alarm[]>('/alarms/active'),
@@ -60,10 +102,17 @@ export async function fetchDashboardData(): Promise<DashboardData> {
     getJson<PredictionResponse>('/ml/prediction'),
     getJson<MpcRecommendation>('/mpc/recommendation'),
   ]);
+  const latest = settledValue<Telemetry | { status?: string }>(latestResult, { status: 'unavailable' });
+  const history = settledValue<Telemetry[]>(historyResult, []);
+  const alarms = settledValue<Alarm[]>(alarmsResult, []);
+  const events = settledValue<RigEvent[]>(eventsResult, []);
+  const cycles = settledValue<PumpCycle[]>(cyclesResult, []);
+  const prediction = settledValue<PredictionResponse>(predictionResult, { status: 'unavailable', predictions: [] });
+  const mpc = settledValue<MpcRecommendation>(mpcResult, { status: 'unavailable' });
 
   return {
-    latest: normalizeLatest(latest),
-    history: Array.isArray(history) ? history : [],
+    latest: normalizeTelemetry(latest),
+    history: normalizeTelemetryList(history),
     alarms: Array.isArray(alarms) ? alarms : [],
     events: Array.isArray(events) ? events : [],
     cycles: Array.isArray(cycles) ? cycles : [],

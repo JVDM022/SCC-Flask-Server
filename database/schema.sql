@@ -6,29 +6,29 @@ CREATE TABLE IF NOT EXISTS telemetry (
     device_id VARCHAR(120),
     mqtt_topic VARCHAR(255),
     raw_payload JSONB,
-    event INTEGER NOT NULL,
-    ms INTEGER NOT NULL,
-    temp_c DOUBLE PRECISION NOT NULL,
-    adc INTEGER NOT NULL,
-    dtemp_c_per_s DOUBLE PRECISION NOT NULL,
-    setpoint_c DOUBLE PRECISION NOT NULL,
-    mode INTEGER NOT NULL,
-    heater_pwm INTEGER NOT NULL,
-    heating INTEGER NOT NULL,
-    heater_lockout INTEGER NOT NULL,
-    pump_enabled INTEGER NOT NULL,
-    pump_allowed INTEGER NOT NULL,
-    pump_on INTEGER NOT NULL,
-    motor_pwm INTEGER NOT NULL,
-    motor_on_ms INTEGER NOT NULL,
-    motor_period_ms INTEGER NOT NULL,
-    temp_before_pump_c DOUBLE PRECISION NOT NULL,
-    min_temp_after_pump_c DOUBLE PRECISION NOT NULL,
-    last_pump_drop_c DOUBLE PRECISION NOT NULL,
-    recovery_time_s DOUBLE PRECISION NOT NULL,
-    manual_kill INTEGER NOT NULL,
-    hard_kill INTEGER NOT NULL,
-    uptime_s INTEGER NOT NULL
+    event INTEGER,
+    ms INTEGER,
+    temp_c DOUBLE PRECISION,
+    adc INTEGER,
+    dtemp_c_per_s DOUBLE PRECISION,
+    setpoint_c DOUBLE PRECISION,
+    mode INTEGER,
+    heater_pwm INTEGER,
+    heating INTEGER,
+    heater_lockout INTEGER,
+    pump_enabled INTEGER,
+    pump_allowed INTEGER,
+    pump_on INTEGER,
+    motor_pwm INTEGER,
+    motor_on_ms INTEGER,
+    motor_period_ms INTEGER,
+    temp_before_pump_c DOUBLE PRECISION,
+    min_temp_after_pump_c DOUBLE PRECISION,
+    last_pump_drop_c DOUBLE PRECISION,
+    recovery_time_s DOUBLE PRECISION,
+    manual_kill INTEGER,
+    hard_kill INTEGER,
+    uptime_s INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -81,10 +81,10 @@ CREATE TABLE IF NOT EXISTS model_metrics (
 CREATE TABLE IF NOT EXISTS mpc_recommendations (
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    current_temp_c DOUBLE PRECISION NOT NULL,
-    setpoint_c DOUBLE PRECISION NOT NULL,
-    current_pwm INTEGER NOT NULL,
-    recommended_pwm INTEGER NOT NULL,
+    current_temp_c DOUBLE PRECISION,
+    setpoint_c DOUBLE PRECISION,
+    current_pwm INTEGER,
+    recommended_pwm INTEGER,
     predicted_temp_c DOUBLE PRECISION,
     cost DOUBLE PRECISION
 );
@@ -215,6 +215,33 @@ ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS rig_id VARCHAR(120);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS device_id VARCHAR(120);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS mqtt_topic VARCHAR(255);
 ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS raw_payload JSONB;
+ALTER TABLE telemetry ALTER COLUMN event DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN ms DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN temp_c DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN adc DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN dtemp_c_per_s DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN setpoint_c DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN mode DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN heater_pwm DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN heating DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN heater_lockout DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN pump_enabled DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN pump_allowed DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN pump_on DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN motor_pwm DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN motor_on_ms DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN motor_period_ms DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN temp_before_pump_c DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN min_temp_after_pump_c DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN last_pump_drop_c DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN recovery_time_s DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN manual_kill DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN hard_kill DROP NOT NULL;
+ALTER TABLE telemetry ALTER COLUMN uptime_s DROP NOT NULL;
+ALTER TABLE mpc_recommendations ALTER COLUMN current_temp_c DROP NOT NULL;
+ALTER TABLE mpc_recommendations ALTER COLUMN setpoint_c DROP NOT NULL;
+ALTER TABLE mpc_recommendations ALTER COLUMN current_pwm DROP NOT NULL;
+ALTER TABLE mpc_recommendations ALTER COLUMN recommended_pwm DROP NOT NULL;
 ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS command_type VARCHAR(40) NOT NULL DEFAULT 'SETPOINT';
 ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS value INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE control_commands ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;

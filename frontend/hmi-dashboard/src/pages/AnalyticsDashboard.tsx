@@ -10,7 +10,7 @@ interface AnalyticsDashboardProps {
 }
 
 function statBlock(values: Array<number | null | undefined>) {
-  const finite = values.map(Number).filter(Number.isFinite);
+  const finite = values.filter((value) => value !== null && value !== undefined).map(Number).filter(Number.isFinite);
   return {
     mean: average(finite),
     min: finite.length ? Math.min(...finite) : null,
@@ -36,8 +36,8 @@ export function AnalyticsDashboard({ data }: AnalyticsDashboardProps) {
 
       <section className="analytics-grid">
         <TrendPanel title="Temperature Distribution" series={[{ name: 'Temp C', type: 'histogram', x: data.history.map((row) => row.temp_c), y: [], color: '#38BDF8' }]} height={280} />
-        <TrendPanel title="Pump Drop Distribution" series={[{ name: 'Drop C', type: 'histogram', x: data.cycles.map((cycle) => cycle.last_pump_drop_c ?? 0), y: [], color: '#F59E0B' }]} height={280} />
-        <TrendPanel title="Recovery Time Distribution" series={[{ name: 'Recovery s', type: 'histogram', x: data.cycles.map((cycle) => cycle.recovery_time_s ?? 0), y: [], color: '#22C55E' }]} height={280} />
+        <TrendPanel title="Pump Drop Distribution" series={[{ name: 'Drop C', type: 'histogram', x: data.cycles.map((cycle) => cycle.last_pump_drop_c ?? null), y: [], color: '#F59E0B' }]} height={280} />
+        <TrendPanel title="Recovery Time Distribution" series={[{ name: 'Recovery s', type: 'histogram', x: data.cycles.map((cycle) => cycle.recovery_time_s ?? null), y: [], color: '#22C55E' }]} height={280} />
         <TrendPanel title="Heater Usage" series={[{ name: 'PWM', type: 'histogram', x: data.history.map((row) => row.heater_pwm), y: [], color: '#94A3B8' }]} height={280} />
       </section>
     </main>

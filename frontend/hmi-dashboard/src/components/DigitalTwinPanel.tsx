@@ -93,7 +93,7 @@ export function DigitalTwinPanel({ latest, prediction }: DigitalTwinPanelProps) 
           </div>
           <div>
             <span>Next ML horizon</span>
-            <strong>{nextPrediction ? `+${nextPrediction.second}s` : '--'}</strong>
+            <strong>{nextPrediction ? `+${nextPrediction.second}s` : 'N/A'}</strong>
           </div>
           <div>
             <span>Forecast pump drop</span>

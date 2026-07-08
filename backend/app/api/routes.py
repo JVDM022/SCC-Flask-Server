@@ -29,10 +29,9 @@ EVENT_NAMES = {
 
 
 def _filter_telemetry_payload(payload: dict) -> dict:
-    missing = [key for key in TELEMETRY_COLUMNS if key not in payload]
-    if missing:
-        raise ValueError(f"Missing telemetry fields: {', '.join(missing)}")
-    row = {key: payload[key] for key in TELEMETRY_COLUMNS}
+    if not any(key in payload for key in TELEMETRY_COLUMNS):
+        raise ValueError("Telemetry payload did not include any telemetry fields.")
+    row = {key: payload.get(key) for key in TELEMETRY_COLUMNS}
     for key in ("site_id", "rig_id", "device_id", "mqtt_topic", "raw_payload"):
         if key in payload:
             row[key] = payload[key]
@@ -44,8 +43,9 @@ def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
     db.session.add(telemetry)
     db.session.flush()
 
-    event_code = int(row.get("event", 0))
-    if event_code != 0:
+    event_code = row.get("event")
+    if event_code is not None and int(event_code) != 0:
+        event_code = int(event_code)
         event_name = EVENT_NAMES.get(event_code, "unknown")
         db.session.add(
             Event(

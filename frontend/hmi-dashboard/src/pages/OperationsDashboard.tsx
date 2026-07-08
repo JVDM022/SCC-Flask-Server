@@ -16,7 +16,7 @@ interface OperationsDashboardProps {
 export function OperationsDashboard({ data }: OperationsDashboardProps) {
   const queryClient = useQueryClient();
   const latest = data.latest;
-  const tempError = latest ? latest.temp_c - latest.setpoint_c : null;
+  const tempError = latest?.temp_c !== null && latest?.setpoint_c !== null && latest?.temp_c !== undefined && latest?.setpoint_c !== undefined ? latest.temp_c - latest.setpoint_c : null;
   const manualKillActive = Boolean(latest?.manual_kill);
   const safetyMutation = useMutation({
     mutationFn: queueManualKill,
@@ -27,7 +27,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
     },
   });
   const safetyError = safetyMutation.error instanceof Error ? safetyMutation.error.message : 'Command failed';
-  const x = data.history.map((row) => row.created_at || row.ms);
+  const x = data.history.map((row) => row.created_at || row.ms || 'N/A');
   const horizon5 = data.prediction.predictions?.find((item) => item.horizon_s === 5);
   const predictedLine = data.history.map(() => null as number | null);
   if (latest && horizon5?.predicted_temp_c !== undefined) {
@@ -40,8 +40,8 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <MetricCard icon={Thermometer} label="Current Temperature" value={formatNumber(latest?.temp_c)} unit="C" tone="accent" detail="Live Arduino USB telemetry" />
         <MetricCard icon={Gauge} label="Setpoint" value={formatNumber(latest?.setpoint_c)} unit="C" detail="Controller target" />
         <MetricCard icon={Activity} label="Temperature Error" value={formatNumber(tempError)} unit="C" tone={Math.abs(tempError || 0) > 5 ? 'warning' : 'default'} detail="Measured minus target" />
-        <MetricCard icon={Flame} label="Heater PWM" value={latest?.heater_pwm ?? '--'} unit="/255" detail="Current actuator command" />
-        <MetricCard icon={RotateCcw} label="Pump Status" value={latest?.pump_on ? 'On' : 'Off'} tone={latest?.pump_on ? 'success' : 'default'} detail={`Motor PWM ${latest?.motor_pwm ?? '--'}`} />
+        <MetricCard icon={Flame} label="Heater PWM" value={formatNumber(latest?.heater_pwm, 0)} unit="/255" detail="Current actuator command" />
+        <MetricCard icon={RotateCcw} label="Pump Status" value={latest?.pump_on === null || latest?.pump_on === undefined ? 'N/A' : latest.pump_on ? 'On' : 'Off'} tone={latest?.pump_on ? 'success' : 'default'} detail={`Motor PWM ${formatNumber(latest?.motor_pwm, 0)}`} />
         <MetricCard icon={Gauge} label="System Mode" value={modeLabel(latest?.mode)} detail="Arduino controller state" />
       </section>
 

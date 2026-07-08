@@ -16,8 +16,8 @@ def extract_pump_cycle_from_event(telemetry: Telemetry) -> PumpCycle | None:
         min_temp_after_pump_c=telemetry.min_temp_after_pump_c,
         last_pump_drop_c=telemetry.last_pump_drop_c,
         recovery_time_s=telemetry.recovery_time_s,
-        avg_heater_pwm=float(telemetry.heater_pwm),
-        avg_motor_pwm=float(telemetry.motor_pwm),
+        avg_heater_pwm=float(telemetry.heater_pwm) if telemetry.heater_pwm is not None else None,
+        avg_motor_pwm=float(telemetry.motor_pwm) if telemetry.motor_pwm is not None else None,
     )
     db.session.add(cycle)
     return cycle

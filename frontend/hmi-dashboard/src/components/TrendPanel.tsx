@@ -7,7 +7,7 @@ interface PlotlyApi {
 
 interface TrendSeries {
   name: string;
-  x: Array<string | number>;
+  x: Array<string | number | null>;
   y: Array<number | null>;
   color: string;
   dash?: 'solid' | 'dot' | 'dash';

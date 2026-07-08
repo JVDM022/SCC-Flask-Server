@@ -1,13 +1,14 @@
 export function formatNumber(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '--';
+  const numberValue = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(numberValue)) {
+    return 'N/A';
   }
-  return Number(value).toFixed(digits);
+  return numberValue.toFixed(digits);
 }
 
 export function formatDateTime(value?: string | null): string {
   if (!value) {
-    return '--';
+    return 'N/A';
   }
   return new Date(value).toLocaleString(undefined, {
     month: 'short',
@@ -19,7 +20,7 @@ export function formatDateTime(value?: string | null): string {
 }
 
 export function average(values: Array<number | null | undefined>): number | null {
-  const finite = values.map(Number).filter(Number.isFinite);
+  const finite = values.filter((value) => value !== null && value !== undefined).map(Number).filter(Number.isFinite);
   if (!finite.length) {
     return null;
   }
@@ -27,7 +28,7 @@ export function average(values: Array<number | null | undefined>): number | null
 }
 
 export function percentile(values: Array<number | null | undefined>, pct: number): number | null {
-  const finite = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const finite = values.filter((value) => value !== null && value !== undefined).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
   if (!finite.length) {
     return null;
   }
@@ -35,9 +36,9 @@ export function percentile(values: Array<number | null | undefined>, pct: number
   return finite[index];
 }
 
-export function modeLabel(mode?: number): string {
+export function modeLabel(mode?: number | null): string {
   if (mode === undefined || mode === null) {
-    return '--';
+    return 'N/A';
   }
   const labels: Record<number, string> = {
     0: 'Idle',
