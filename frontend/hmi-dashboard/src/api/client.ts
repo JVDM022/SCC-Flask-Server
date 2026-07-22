@@ -185,3 +185,7 @@ export async function fetchLatestTelemetry(): Promise<Telemetry | { status?: str
 export async function queueManualKill(enabled: boolean): Promise<{ status: string; id: number; manual_kill: boolean }> {
   return postJson('/control/manual-kill', { enabled });
 }
+
+export async function queuePowerCommand(enabled: boolean): Promise<{ status: string; id: number; enabled: boolean }> {
+  return postJson('/control/power', { enabled });
+}

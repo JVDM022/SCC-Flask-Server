@@ -134,3 +134,16 @@ def test_nuc_fetches_setpoint_control_commands(client):
     body = response.get_json()
     assert body["type"] == "SETPOINT"
     assert body["setpoint_c"] == 124.5
+
+
+def test_nuc_fetches_power_control_commands(client):
+    with client.application.app_context():
+        db.session.add(ControlCommand(command_type="SET_ON", value=1, setpoint_c=0.0))
+        db.session.commit()
+
+    response = client.get("/api/firmware/commands/next?device=nuc")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["type"] == "SET_ON"
+    assert body["value"] == 1

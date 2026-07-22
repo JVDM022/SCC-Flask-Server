@@ -94,6 +94,7 @@ The Flask backend subscribes to Mosquitto when `MQTT_ENABLED=1`, parses MQTT pay
 - `GET /api/ml/prediction`: predicted temperatures for +1s, +5s, and +10s when models exist.
 - `GET /api/mpc/recommendation`: advisory heater PWM recommendation.
 - `POST /api/control/setpoint`: store a desired setpoint command.
+- `POST /api/control/power`: queue a controller on/off command through the Intel NUC gateway.
 - `POST /api/telemetry`: JSON telemetry ingest used by the Intel NUC gateway and development tools.
 - `POST /api/telemetry/csv`: development/manual CSV import, not the live ESP32 path.
 

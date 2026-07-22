@@ -4,7 +4,7 @@ import pytest
 
 from app import create_app
 from app.database.db import db
-from app.database.models import Telemetry
+from app.database.models import ControlCommand, Telemetry
 
 
 ROW = "0,123456,126.42,222,-0.1300,125.00,3,184,1,0,1,1,0,155,150,30000,127.20,124.80,2.40,18.50,0,0,300"
@@ -134,3 +134,18 @@ def test_telemetry_json_accepts_partial_payload(client):
         telemetry = Telemetry.query.order_by(Telemetry.id.desc()).first()
         assert telemetry.temp_c == 126.42
         assert telemetry.adc is None
+
+
+def test_power_control_queues_turn_on_command(client):
+    response = client.post(
+        "/api/control/power",
+        json={"enabled": True},
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["enabled"] is True
+    with client.application.app_context():
+        command = ControlCommand.query.one()
+        assert command.command_type == "SET_ON"
+        assert command.value == 1

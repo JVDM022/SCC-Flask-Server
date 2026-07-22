@@ -314,3 +314,23 @@ def control_manual_kill():
             "warning": "Manual kill commands are polled by the Intel NUC gateway and enforced by Arduino firmware.",
         }
     )
+
+
+@api.post("/control/power")
+@require_api_key
+def control_power():
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("enabled", True))
+    command = ControlCommand(command_type="SET_ON", value=1 if enabled else 0, setpoint_c=0.0)
+    db.session.add(command)
+    db.session.commit()
+    return jsonify(
+        {
+            "status": "queued",
+            "id": command.id,
+            "type": "SET_ON",
+            "value": command.value,
+            "enabled": enabled,
+            "warning": "Power commands are polled by the Intel NUC gateway and enforced by Arduino firmware safety limits.",
+        }
+    )

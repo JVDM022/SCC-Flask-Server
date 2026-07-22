@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Activity, Flame, Gauge, Power, PowerOff, RotateCcw, ShieldAlert, Thermometer } from 'lucide-react';
 
-import { queueManualKill } from '../api/client';
+import { queueManualKill, queuePowerCommand } from '../api/client';
 import { AlarmPanel } from '../components/AlarmPanel';
 import { MetricCard } from '../components/MetricCard';
 import { TimelinePanel } from '../components/TimelinePanel';
@@ -18,15 +18,22 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
   const latest = data.latest;
   const tempError = latest?.temp_c !== null && latest?.setpoint_c !== null && latest?.temp_c !== undefined && latest?.setpoint_c !== undefined ? latest.temp_c - latest.setpoint_c : null;
   const manualKillActive = Boolean(latest?.manual_kill);
+  const systemEnabled = Boolean(latest?.pump_enabled);
+  const invalidateControlData = () => {
+    queryClient.invalidateQueries({ queryKey: ['dashboard-data'] });
+    queryClient.invalidateQueries({ queryKey: ['mqtt-status'] });
+    queryClient.invalidateQueries({ queryKey: ['firmware-commands'] });
+  };
   const safetyMutation = useMutation({
     mutationFn: queueManualKill,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard-data'] });
-      queryClient.invalidateQueries({ queryKey: ['mqtt-status'] });
-      queryClient.invalidateQueries({ queryKey: ['firmware-commands'] });
-    },
+    onSuccess: invalidateControlData,
+  });
+  const powerMutation = useMutation({
+    mutationFn: queuePowerCommand,
+    onSuccess: invalidateControlData,
   });
   const safetyError = safetyMutation.error instanceof Error ? safetyMutation.error.message : 'Command failed';
+  const powerError = powerMutation.error instanceof Error ? powerMutation.error.message : 'Command failed';
   const x = data.history.map((row) => row.created_at || row.ms || 'N/A');
   const horizon5 = data.prediction.predictions?.find((item) => item.horizon_s === 5);
   const predictedLine = data.history.map(() => null as number | null);
@@ -48,12 +55,21 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
       <section className={`panel safety-control-panel ${manualKillActive ? 'safety-control-panel--active' : ''}`}>
         <div className="panel__header">
           <div>
-            <h2>Manual Emergency Control</h2>
-            <p>Queues a manual kill command for the Intel NUC gateway to forward to the Arduino controller</p>
+            <h2>Manual System Control</h2>
+            <p>Queues power and emergency commands for the Intel NUC gateway to forward to the Arduino controller</p>
           </div>
           <ShieldAlert size={20} />
         </div>
         <div className="safety-control-actions">
+          <button
+            className="safety-button safety-button--power-on"
+            onClick={() => powerMutation.mutate(true)}
+            disabled={powerMutation.isPending || manualKillActive || systemEnabled}
+            type="button"
+          >
+            <Power size={18} />
+            {powerMutation.isPending ? 'Turning On' : 'Turn On'}
+          </button>
           <button
             className="safety-button safety-button--kill"
             onClick={() => safetyMutation.mutate(true)}
@@ -75,6 +91,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
           <span className={`safety-state ${manualKillActive ? 'critical' : 'normal'}`}>
             {manualKillActive ? 'Manual kill active' : 'Manual kill clear'}
           </span>
+          {powerMutation.isError ? <span className="safety-error">{powerError}</span> : null}
           {safetyMutation.isError ? <span className="safety-error">{safetyError}</span> : null}
         </div>
       </section>
