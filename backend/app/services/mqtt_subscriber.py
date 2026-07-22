@@ -10,6 +10,7 @@ from typing import Any
 import paho.mqtt.client as mqtt
 from flask import Flask
 
+from ..alarms.lifecycle import sync_active_alarms
 from ..alarms.rules import evaluate_alarms
 from ..database.db import db
 from ..database.models import (
@@ -229,8 +230,7 @@ def store_telemetry(row: dict[str, Any]) -> tuple[Telemetry, list[dict]]:
             )
         )
     alarms = evaluate_alarms(row)
-    for alarm in alarms:
-        db.session.add(Alarm(telemetry_id=telemetry.id, **alarm))
+    sync_active_alarms(telemetry, alarms)
     extract_pump_cycle_from_event(telemetry)
     return telemetry, alarms
 

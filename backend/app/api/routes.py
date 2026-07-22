@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
 
+from ..alarms.lifecycle import sync_active_alarms
 from ..alarms.rules import evaluate_alarms
 from ..database.db import db
 from ..database.models import Alarm, ControlCommand, Device, Event, MpcRecommendation, MqttMessageLog, PumpCycle, Telemetry
@@ -58,8 +59,7 @@ def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
         )
 
     alarms = evaluate_alarms(row)
-    for alarm in alarms:
-        db.session.add(Alarm(telemetry_id=telemetry.id, **alarm))
+    sync_active_alarms(telemetry, alarms)
 
     extract_pump_cycle_from_event(telemetry)
     if commit:

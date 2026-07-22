@@ -4,7 +4,7 @@ import pytest
 
 from app import create_app
 from app.database.db import db
-from app.database.models import ControlCommand, Telemetry
+from app.database.models import Alarm, ControlCommand, Telemetry
 
 
 ROW = "0,123456,126.42,222,-0.1300,125.00,3,184,1,0,1,1,0,155,150,30000,127.20,124.80,2.40,18.50,0,0,300"
@@ -149,3 +149,28 @@ def test_power_control_queues_turn_on_command(client):
         command = ControlCommand.query.one()
         assert command.command_type == "SET_ON"
         assert command.value == 1
+
+
+def test_repeated_alarm_condition_keeps_one_active_alarm(client):
+    payload = {"event": 0, "temp_c": 126.0, "setpoint_c": 125.0, "adc": 222, "heater_lockout": 1}
+    headers = {"X-API-Key": "test-write-key"}
+
+    assert client.post("/api/telemetry", json=payload, headers=headers).status_code == 200
+    assert client.post("/api/telemetry", json=payload, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        assert Alarm.query.filter_by(alarm_code="HEATER_LOCKOUT", active=True).count() == 1
+
+
+def test_alarm_clears_when_condition_returns_to_normal(client):
+    headers = {"X-API-Key": "test-write-key"}
+    active_payload = {"event": 0, "temp_c": 126.0, "setpoint_c": 125.0, "adc": 222, "heater_lockout": 1}
+    clear_payload = {**active_payload, "heater_lockout": 0}
+
+    assert client.post("/api/telemetry", json=active_payload, headers=headers).status_code == 200
+    assert client.post("/api/telemetry", json=clear_payload, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        alarm = Alarm.query.filter_by(alarm_code="HEATER_LOCKOUT").one()
+        assert alarm.active is False
+        assert alarm.cleared_at is not None
