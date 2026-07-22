@@ -127,11 +127,11 @@ function UploadPanel({
         </label>
 
         <div className="firmware-upload-actions">
-          <button className="command-button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending}>
+          <button className="command-button" type="button" onClick={() => uploadMutation.mutate()} disabled={uploadMutation.isPending}>
             <UploadCloud size={16} />
             {uploadMutation.isPending ? 'Uploading' : 'Upload'}
           </button>
-          <button className="command-button" onClick={() => commandMutation.mutate()} disabled={!uploadedArtifact || commandMutation.isPending}>
+          <button className="command-button" type="button" onClick={() => commandMutation.mutate()} disabled={!uploadedArtifact || commandMutation.isPending}>
             <Send size={16} />
             {commandMutation.isPending ? 'Queueing' : 'Queue OTA'}
           </button>
@@ -172,7 +172,7 @@ function CommandHelper({ device }: { device: FirmwareDevice }) {
           <span>{valueOrDash(device.device_name)}</span>
           <strong>{valueOrDash(device.device_id)}</strong>
         </div>
-        <button className="command-button compact" onClick={() => copyCommand(command, setCopied)}>
+        <button className="command-button compact" type="button" onClick={() => copyCommand(command, setCopied)}>
           <Clipboard size={15} />
           {copied ? 'Copied' : 'Copy'}
         </button>

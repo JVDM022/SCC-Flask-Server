@@ -39,7 +39,7 @@
 #define OFF_LOCKOUT_LOW_Cx100     12650   // 126.50 C
 
 // Only allow new pump doses when the bath has enough thermal headroom.
-#define PUMP_ENABLE_Cx100         12700   // allow pump at/above 127.00 C
+#define PUMP_ENABLE_Cx100         12500   // allow pump at/above the 125.00 C operating setpoint
 #define PUMP_DISABLE_Cx100        12300   // stop pump at/below 123.00 C
 #define HEATER_BIAS_MAX_Cx100     12800   // no pump bias at/above 128.00 C
 

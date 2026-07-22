@@ -139,12 +139,24 @@ export async function uploadFirmwareArtifact(target: FirmwareTarget, file: File)
   const form = new FormData();
   form.append('target', target);
   form.append('file', file);
+  const headers: Record<string, string> = {};
+  if (API_WRITE_KEY) {
+    headers['X-API-Key'] = API_WRITE_KEY;
+  }
   const response = await fetch(`${API_BASE}/firmware/artifacts`, {
     method: 'POST',
+    headers,
     body: form,
   });
   if (!response.ok) {
-    const message = await response.text();
+    const body = await response.text();
+    let message = body;
+    try {
+      const parsed = JSON.parse(body) as { message?: string };
+      message = parsed.message || body;
+    } catch {
+      // Keep the response text when the backend did not return JSON.
+    }
     throw new Error(message || `/firmware/artifacts returned ${response.status}`);
   }
   return response.json() as Promise<FirmwareArtifact>;

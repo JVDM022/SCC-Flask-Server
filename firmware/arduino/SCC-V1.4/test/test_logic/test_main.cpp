@@ -76,6 +76,10 @@ void test_pump_temperature_gate_enables_with_headroom() {
   TEST_ASSERT_TRUE(nextPumpTempAllowed(false, SAFE_TEMP_HIGH_Cx100 - 1));
 }
 
+void test_pump_enable_threshold_matches_operating_setpoint() {
+  TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100, PUMP_ENABLE_Cx100);
+}
+
 void test_pump_temperature_gate_uses_low_hysteresis() {
   TEST_ASSERT_TRUE(nextPumpTempAllowed(true, PUMP_DISABLE_Cx100 + 1));
   TEST_ASSERT_FALSE(nextPumpTempAllowed(true, PUMP_DISABLE_Cx100));
@@ -277,6 +281,7 @@ static void runFunctionTests() {
   RUN_TEST(test_adc_sensor_fault_detects_rail_values);
   RUN_TEST(test_adc_sensor_fault_uses_recovery_hysteresis);
   RUN_TEST(test_pump_temperature_gate_enables_with_headroom);
+  RUN_TEST(test_pump_enable_threshold_matches_operating_setpoint);
   RUN_TEST(test_pump_temperature_gate_uses_low_hysteresis);
   RUN_TEST(test_pump_temperature_gate_blocks_upper_limit);
   RUN_TEST(test_pump_pwm_has_startup_kick_then_normal_pwm);

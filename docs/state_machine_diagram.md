@@ -37,7 +37,7 @@ flowchart LR
     PumpOn["Pump On\n1 s dosing pulse\nstartup PWM 180, run PWM 155"]
     PumpStopped["Pump Stopped\nforced by safety/runtime"]
 
-    PumpInhibited -->|"temp >= 127.00 C"| PumpArmed
+    PumpInhibited -->|"temp >= 125.00 C"| PumpArmed
     PumpArmed -->|"cycle phase < 1 s"| PumpOn
     PumpOn -->|"cycle phase >= 1 s"| PumpArmed
     PumpArmed -->|"temp <= 123.00 C"| PumpInhibited
