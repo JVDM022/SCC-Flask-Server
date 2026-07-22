@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from io import BytesIO
 
 import pytest
 
 from app import create_app
 from app.database.db import db
-from app.database.models import ControlCommand, FirmwareArtifact, FirmwareCommand
+from app.database.models import ControlCommand, FirmwareArtifact, FirmwareCommand, FirmwareDevice
+from app.services.firmware_ota import device_to_dict
 
 
 class TestConfig:
@@ -147,3 +149,15 @@ def test_nuc_fetches_power_control_commands(client):
     body = response.get_json()
     assert body["type"] == "SET_ON"
     assert body["value"] == 1
+
+
+def test_firmware_status_handles_timezone_aware_heartbeat(client):
+    with client.application.app_context():
+        device = FirmwareDevice(
+            device_id="intel-nuc-gateway",
+            platformio_env="uno",
+            online=True,
+            last_heartbeat=datetime.now(timezone.utc),
+        )
+
+        assert device_to_dict(device)["online"] is True

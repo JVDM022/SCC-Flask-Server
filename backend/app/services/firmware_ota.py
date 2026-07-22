@@ -146,7 +146,8 @@ def device_to_dict(device: FirmwareDevice) -> dict[str, Any]:
     row = device.to_dict()
     online = bool(device.online)
     if device.last_heartbeat:
-        online = online and datetime.utcnow() - device.last_heartbeat <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
+        now = datetime.now(device.last_heartbeat.tzinfo) if device.last_heartbeat.tzinfo else datetime.utcnow()
+        online = online and now - device.last_heartbeat <= timedelta(seconds=ONLINE_WINDOW_SECONDS)
 
     is_nuc_gateway = "nuc" in (device.device_id or "").lower() or (device.platformio_env or "").lower() == "uno"
     if is_nuc_gateway:
