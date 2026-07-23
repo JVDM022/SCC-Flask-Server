@@ -13,29 +13,6 @@ Arduino SCC controller -> USB serial -> Intel NUC gateway -> Flask API -> Postgr
                                                                   |-> React HMI dashboard
 ```
 
-## Linux/macOS Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-```
-
-Run the backend:
-
-```bash
-cd backend
-flask --app run:app init-db
-python run.py
-```
-
-## Windows Setup
-
-```bat
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r backend/requirements.txt
-```
 
 ## Docker Setup
 
@@ -118,23 +95,6 @@ Event codes: `0` normal sample, `1` pump start, `2` pump end, `3` pump recovered
 
 Arduino firmware and hardware own hard safety. Flask, ML, MPC, and the Intel NUC gateway are monitoring, communications, and advisory layers, not the only protection layer. Heater lockout, manual kill, and hard kill override all recommendations; MPC returns PWM 0 when any of those states is active.
 
-## Email Alerts
-
-The backend can send SMTP email for critical safety alarms such as hard kill, manual kill, and sensor fault. Configure these environment variables in `.env` or Azure App Settings:
-
-```text
-ALERT_EMAIL_ENABLED=1
-ALERT_EMAIL_TO=operator@example.com
-ALERT_EMAIL_FROM=scc-alerts@example.com
-ALERT_EMAIL_COOLDOWN_SECONDS=900
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USERNAME=scc-alerts@example.com
-SMTP_PASSWORD=your-app-password
-SMTP_STARTTLS=1
-```
-
-Use an app password or service-specific SMTP credential rather than a personal account password. The backend rate-limits repeated messages for the same device and alarm set using `ALERT_EMAIL_COOLDOWN_SECONDS`.
 
 ## Manual Emergency Control
 
