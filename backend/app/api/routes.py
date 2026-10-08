@@ -299,8 +299,15 @@ def control_setpoint():
 @api.post("/control/manual-kill")
 @require_api_key
 def control_manual_kill():
-    payload = request.get_json(silent=True) or {}
-    enabled = bool(payload.get("enabled", True))
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return jsonify({"status": "error", "message": "enabled must be provided as a boolean"}), 400
+    enabled = payload["enabled"]
+    # Keep only the newest unsent kill state. An emergency stop also cancels
+    # any queued start command so it cannot run after the stop is released.
+    ControlCommand.query.filter_by(command_type="KILL", applied=False).delete(synchronize_session=False)
+    if enabled:
+        ControlCommand.query.filter_by(command_type="SET_ON", applied=False).delete(synchronize_session=False)
     command = ControlCommand(command_type="KILL", value=1 if enabled else 0, setpoint_c=0.0)
     db.session.add(command)
     db.session.commit()
@@ -319,8 +326,13 @@ def control_manual_kill():
 @api.post("/control/power")
 @require_api_key
 def control_power():
-    payload = request.get_json(silent=True) or {}
-    enabled = bool(payload.get("enabled", True))
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return jsonify({"status": "error", "message": "enabled must be provided as a boolean"}), 400
+    enabled = payload["enabled"]
+    # A queued power command represents desired state, so a newer click
+    # supersedes any older unsent ON/OFF command.
+    ControlCommand.query.filter_by(command_type="SET_ON", applied=False).delete(synchronize_session=False)
     command = ControlCommand(command_type="SET_ON", value=1 if enabled else 0, setpoint_c=0.0)
     db.session.add(command)
     db.session.commit()

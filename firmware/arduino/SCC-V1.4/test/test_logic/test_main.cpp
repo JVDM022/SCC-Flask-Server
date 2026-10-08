@@ -133,6 +133,17 @@ void test_motor_bias_adds_prebias_and_on_bias_with_pwm_clamp() {
   TEST_ASSERT_EQUAL_UINT8(HEATER_PWM_MAX, applyMotorBias(HEATER_PWM_MAX, 1000));
 }
 
+void test_telemetry_mode_reports_off_until_system_is_enabled() {
+  controlMode = CTRL_AUTOTUNE_WARMUP;
+  motorEnabled = false;
+  TEST_ASSERT_EQUAL_UINT8(0, telemetryControlModeCode());
+
+  motorEnabled = true;
+  TEST_ASSERT_EQUAL_UINT8(1, telemetryControlModeCode());
+  controlMode = CTRL_PID_HOLD;
+  TEST_ASSERT_EQUAL_UINT8(4, telemetryControlModeCode());
+}
+
 void test_reset_autotune_restores_initial_controller_state() {
   activeSetpointCx100 = SETPOINT_Cx100;
   controlMode = CTRL_PID_HOLD;
@@ -288,6 +299,7 @@ static void runFunctionTests() {
   RUN_TEST(test_motor_timer_uses_enabled_state_and_cycle_phase);
   RUN_TEST(test_motor_prebias_window_is_only_before_cycle_end);
   RUN_TEST(test_motor_bias_adds_prebias_and_on_bias_with_pwm_clamp);
+  RUN_TEST(test_telemetry_mode_reports_off_until_system_is_enabled);
   RUN_TEST(test_reset_autotune_restores_initial_controller_state);
   RUN_TEST(test_autotune_warmup_pwm_and_relay_transition);
   RUN_TEST(test_autotune_timeout_switches_to_pid_ramp);

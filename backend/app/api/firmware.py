@@ -194,6 +194,7 @@ def list_firmware_commands():
 
 
 @firmware_api.get("/api/firmware/commands/next")
+@require_api_key
 def get_next_firmware_command():
     device = str(request.args.get("device") or "").strip().lower()
     if device and device not in RELAY_DEVICE_ALIASES | NUC_DEVICE_ALIASES:
@@ -206,9 +207,9 @@ def get_next_firmware_command():
         .first()
     )
     if control_command is not None:
-        control_command.applied = True
-        control_command.sent_at = datetime.utcnow()
-        db.session.commit()
+        # Control commands remain pending until the NUC confirms that the UART
+        # write succeeded. This prevents a transient serial failure from
+        # silently discarding a power or emergency command.
         return jsonify(control_command_payload(control_command))
 
     query = FirmwareCommand.query.filter_by(status="pending")
@@ -230,14 +231,33 @@ def get_next_firmware_command():
 @firmware_api.post("/api/firmware/commands/<int:cmd_id>/ack")
 @require_api_key
 def ack_firmware_command(cmd_id: int):
-    command = db.session.get(FirmwareCommand, cmd_id)
-    if command is None:
-        return jsonify({"status": "error", "message": "command was not found"}), 404
-
     payload = request.get_json(silent=True) or {}
     ack_status = str(payload.get("status") or "").strip().lower()
     if ack_status not in ACK_STATUSES:
         return jsonify({"status": "error", "message": 'status must be "success", "failed", or "started"'}), 400
+
+    if cmd_id >= CONTROL_CMD_ID_OFFSET:
+        control_command = db.session.get(ControlCommand, cmd_id - CONTROL_CMD_ID_OFFSET)
+        if control_command is None:
+            return jsonify({"status": "error", "message": "control command was not found"}), 404
+        if ack_status == "success":
+            control_command.applied = True
+            control_command.sent_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(
+            {
+                "status": "ok",
+                "command": {
+                    **control_command_payload(control_command),
+                    "delivery_status": ack_status,
+                    "applied": control_command.applied,
+                },
+            }
+        )
+
+    command = db.session.get(FirmwareCommand, cmd_id)
+    if command is None:
+        return jsonify({"status": "error", "message": "command was not found"}), 404
 
     command.status = ack_status
     command.ack_status = ack_status

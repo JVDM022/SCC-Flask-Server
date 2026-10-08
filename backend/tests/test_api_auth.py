@@ -151,6 +151,58 @@ def test_power_control_queues_turn_on_command(client):
         assert command.value == 1
 
 
+def test_power_control_queues_turn_off_command(client):
+    response = client.post(
+        "/api/control/power",
+        json={"enabled": False},
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["enabled"] is False
+    with client.application.app_context():
+        command = ControlCommand.query.one()
+        assert command.command_type == "SET_ON"
+        assert command.value == 0
+
+
+@pytest.mark.parametrize("payload", [{}, {"enabled": "false"}, {"enabled": 1}])
+def test_power_control_rejects_non_boolean_state(client, payload):
+    response = client.post(
+        "/api/control/power",
+        json=payload,
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 400
+    with client.application.app_context():
+        assert ControlCommand.query.count() == 0
+
+
+def test_latest_power_command_supersedes_older_unsent_state(client):
+    headers = {"X-API-Key": "test-write-key"}
+    assert client.post("/api/control/power", json={"enabled": True}, headers=headers).status_code == 200
+    assert client.post("/api/control/power", json={"enabled": False}, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        commands = ControlCommand.query.all()
+        assert len(commands) == 1
+        assert commands[0].command_type == "SET_ON"
+        assert commands[0].value == 0
+
+
+def test_emergency_stop_cancels_unsent_start_command(client):
+    headers = {"X-API-Key": "test-write-key"}
+    assert client.post("/api/control/power", json={"enabled": True}, headers=headers).status_code == 200
+    assert client.post("/api/control/manual-kill", json={"enabled": True}, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        commands = ControlCommand.query.all()
+        assert len(commands) == 1
+        assert commands[0].command_type == "KILL"
+        assert commands[0].value == 1
+
+
 def test_repeated_alarm_condition_keeps_one_active_alarm(client):
     payload = {"event": 0, "temp_c": 126.0, "setpoint_c": 125.0, "adc": 222, "heater_lockout": 1}
     headers = {"X-API-Key": "test-write-key"}

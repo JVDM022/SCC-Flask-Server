@@ -28,6 +28,7 @@ extern uint32_t autotuneStartMs;
 bool isMotorOnNow(uint32_t now);
 bool isMotorPrebiasWindow(uint32_t now);
 uint8_t applyMotorBias(uint8_t basePwm, uint32_t now);
+uint8_t telemetryControlModeCode();
 
 void resetAutotune(uint32_t now);
 void finishAutotune(uint32_t now, int16_t tempCx100);

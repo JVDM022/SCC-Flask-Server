@@ -150,6 +150,38 @@ def test_nuc_fetches_power_control_commands(client):
     assert body["type"] == "SET_ON"
     assert body["value"] == 1
 
+    with client.application.app_context():
+        assert ControlCommand.query.one().applied is False
+
+    ack_response = client.post(
+        f"/api/firmware/commands/{body['cmdId']}/ack",
+        json={"status": "success", "message": "UART write completed"},
+    )
+
+    assert ack_response.status_code == 200
+    assert ack_response.get_json()["command"]["applied"] is True
+    with client.application.app_context():
+        command = ControlCommand.query.one()
+        assert command.applied is True
+        assert command.sent_at is not None
+
+
+def test_failed_control_delivery_remains_pending_for_retry(client):
+    with client.application.app_context():
+        db.session.add(ControlCommand(command_type="SET_ON", value=0, setpoint_c=0.0))
+        db.session.commit()
+
+    first = client.get("/api/firmware/commands/next?device=nuc").get_json()
+    failed_ack = client.post(
+        f"/api/firmware/commands/{first['cmdId']}/ack",
+        json={"status": "failed", "message": "serial port unavailable"},
+    )
+    second = client.get("/api/firmware/commands/next?device=nuc").get_json()
+
+    assert failed_ack.status_code == 200
+    assert failed_ack.get_json()["command"]["applied"] is False
+    assert second["cmdId"] == first["cmdId"]
+
 
 def test_firmware_status_handles_timezone_aware_heartbeat(client):
     with client.application.app_context():

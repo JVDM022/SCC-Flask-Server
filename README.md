@@ -138,7 +138,7 @@ Use an app password or service-specific SMTP credential rather than a personal a
 
 ## Manual Emergency Control
 
-The Operations HMI can queue `KILL 1`, `KILL 0`, and setpoint commands for the Intel NUC gateway to forward to the Arduino controller over USB. Set `API_WRITE_KEY` on the backend and `VITE_API_WRITE_KEY` on the frontend to the same value when command authentication is enabled. The NUC gateway polls:
+The Arduino starts in a fail-safe OFF state. The Operations HMI queues `SET_ON 1` to enable both heater control and the pump timer, and `SET_ON 0` to turn both outputs off. `KILL 1` immediately latches the system OFF; after `KILL 0`, the operator must deliberately select Turn On again. Set `API_WRITE_KEY` on the backend and `VITE_API_WRITE_KEY` on the frontend to the same value when command authentication is enabled. The NUC gateway polls:
 
 ```text
 /api/firmware/commands/next?device=nuc

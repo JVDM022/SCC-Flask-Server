@@ -3,6 +3,14 @@
 This firmware controls the Arduino Uno side of the SCC controller and emits CSV
 telemetry over UART.
 
+## Startup and Power Commands
+
+The controller always boots with the heater and pump off. It will not begin
+autotune, heating, or timed pump operation until it receives `SET_ON 1` over
+UART. `SET_ON 0` turns both outputs off. `KILL 1` also turns both outputs off
+and latches the emergency-stop state; after `KILL 0`, a new `SET_ON 1` command
+is required to restart the rig.
+
 ## ESP32-Driven Firmware Update Prep
 
 The optional `ENABLE_SOFTWARE_BOOTLOADER_ENTRY` feature adds a small UART command

@@ -174,6 +174,7 @@ class NucGateway:
     def poll_command(self) -> dict[str, Any] | None:
         response = self.session.get(
             api_url(self.config.api_base_url, "/api/firmware/commands/next?device=nuc"),
+            headers=api_headers(self.config.api_key),
             timeout=self.config.request_timeout_s,
         )
         response.raise_for_status()
@@ -251,6 +252,8 @@ class NucGateway:
             LOGGER.warning("Unsupported backend command for NUC gateway: %s", command)
             return
         self.write_serial_command(serial_line)
+        if cmd_id > 0:
+            self.ack_command(cmd_id, "success", f"Delivered {serial_line.split()[0]} to Arduino UART")
 
     def read_once(self) -> None:
         if self.serial_conn is None:

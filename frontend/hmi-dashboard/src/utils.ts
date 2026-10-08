@@ -41,11 +41,11 @@ export function modeLabel(mode?: number | null): string {
     return 'N/A';
   }
   const labels: Record<number, string> = {
-    0: 'Idle',
+    0: 'Off',
     1: 'Warmup',
     2: 'Autotune',
-    3: 'Closed loop',
-    4: 'Fault',
+    3: 'PID ramp',
+    4: 'Closed loop',
   };
   return labels[mode] || `Mode ${mode}`;
 }

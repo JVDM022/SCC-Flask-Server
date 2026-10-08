@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.services.nuc_gateway import (
     GatewayConfig,
+    NucGateway,
     build_avrdude_command,
     build_gateway_telemetry,
     serial_command_for_backend_command,
@@ -43,6 +44,35 @@ def test_serial_command_mapping():
     assert serial_command_for_backend_command({"type": "SET_ON", "value": 0}) == "SET_ON 0"
     assert serial_command_for_backend_command({"type": "SETPOINT", "setpoint_c": 124.5}) == "SETPOINT 124.50"
     assert serial_command_for_backend_command({"type": "OTA"}) is None
+
+
+def test_gateway_acknowledges_control_command_after_uart_write(monkeypatch):
+    class FakeSerial:
+        is_open = True
+
+        def __init__(self):
+            self.writes = []
+
+        def write(self, data: bytes):
+            self.writes.append(data)
+
+        def flush(self):
+            pass
+
+    gateway = NucGateway(config())
+    fake_serial = FakeSerial()
+    acknowledgements = []
+    gateway.serial_conn = fake_serial
+    monkeypatch.setattr(
+        gateway,
+        "ack_command",
+        lambda cmd_id, status, message="": acknowledgements.append((cmd_id, status, message)),
+    )
+
+    gateway.handle_command({"cmdId": 100000001, "type": "SET_ON", "value": 1})
+
+    assert fake_serial.writes == [b"SET_ON 1\n"]
+    assert acknowledgements == [(100000001, "success", "Delivered SET_ON to Arduino UART")]
 
 
 def test_avrdude_command_uses_uploaded_hex_and_usb_port():

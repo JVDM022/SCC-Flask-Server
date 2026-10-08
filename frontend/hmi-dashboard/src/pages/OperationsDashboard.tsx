@@ -32,6 +32,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
     mutationFn: queuePowerCommand,
     onSuccess: invalidateControlData,
   });
+  const requestedPowerState = powerMutation.isPending ? powerMutation.variables : null;
   const safetyError = safetyMutation.error instanceof Error ? safetyMutation.error.message : 'Command failed';
   const powerError = powerMutation.error instanceof Error ? powerMutation.error.message : 'Command failed';
   const x = data.history.map((row) => row.created_at || row.ms || 'N/A');
@@ -56,7 +57,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <div className="panel__header">
           <div>
             <h2>Manual System Control</h2>
-            <p>Queues power and emergency commands for the Intel NUC gateway to forward to the Arduino controller</p>
+            <p>Turn On and Turn Off control both heater and pump; Emergency Off latches the controller off</p>
           </div>
           <ShieldAlert size={20} />
         </div>
@@ -68,7 +69,16 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
             type="button"
           >
             <Power size={18} />
-            {powerMutation.isPending ? 'Turning On' : 'Turn On'}
+            {requestedPowerState === true ? 'Turning On' : 'Turn On'}
+          </button>
+          <button
+            className="safety-button safety-button--power-off"
+            onClick={() => powerMutation.mutate(false)}
+            disabled={powerMutation.isPending || !systemEnabled}
+            type="button"
+          >
+            <PowerOff size={18} />
+            {requestedPowerState === false ? 'Turning Off' : 'Turn Off'}
           </button>
           <button
             className="safety-button safety-button--kill"
@@ -88,8 +98,8 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
             <Power size={18} />
             Release Manual Kill
           </button>
-          <span className={`safety-state ${manualKillActive ? 'critical' : 'normal'}`}>
-            {manualKillActive ? 'Manual kill active' : 'Manual kill clear'}
+          <span className={`safety-state ${manualKillActive ? 'critical' : systemEnabled ? 'normal' : 'off'}`}>
+            {manualKillActive ? 'Emergency off latched' : systemEnabled ? 'System on' : 'System off'}
           </span>
           {powerMutation.isError ? <span className="safety-error">{powerError}</span> : null}
           {safetyMutation.isError ? <span className="safety-error">{safetyError}</span> : null}

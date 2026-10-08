@@ -61,7 +61,7 @@ static void printCx100OrBlank(int16_t valueCx100) {
 }
 
 static uint8_t controlModeCode() {
-  return (uint8_t)controlMode;
+  return telemetryControlModeCode();
 }
 
 static uint8_t computePumpPwm(uint32_t now) {
@@ -129,6 +129,34 @@ static void printCsvRow(uint8_t eventCode, uint32_t now, uint16_t adc, int16_t t
   Serial.println((now - programStartMs) / 1000);
 }
 
+static void forceSystemOff() {
+  // This is the single fail-safe shutdown path used by boot, the web OFF
+  // command, emergency stop, faults, and runtime expiry.
+  heaterSet(0);
+  motorSet(false);
+  motorEnabled = false;
+  heating = false;
+  heaterLockout = true;
+  pidIntegral = 0.0f;
+  pumpTempAllowed = false;
+  pumpOnCmd = false;
+  pumpCmdPwm = 0;
+}
+
+static bool systemCanStart() {
+  return !manualKillActive && !runtimeExpired && !sensorFaultActive;
+}
+
+static void startSystem(uint32_t now) {
+  // Every deliberate start begins a fresh, deterministic controller cycle.
+  resetAutotune(now);
+  motorCycleStart = now;
+  pumpTempAllowed = false;
+  pumpOnCmd = false;
+  pumpCmdPwm = 0;
+  motorEnabled = true;
+}
+
 #if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
 static void resetForBootloaderEntry() {
 #if defined(__AVR__)
@@ -144,16 +172,7 @@ static void resetForBootloaderEntry() {
 
 static void prepareForBootloaderEntry() {
   bootloaderEntryPending = true;
-
-  heaterSet(0);
-  motorSet(false);
-  motorEnabled = false;
-  heating = false;
-  heaterLockout = true;
-  pidIntegral = 0.0f;
-  pumpTempAllowed = false;
-  pumpOnCmd = false;
-  pumpCmdPwm = 0;
+  forceSystemOff();
 
   Serial.println(F("OTA_READY"));
   Serial.flush();
@@ -173,25 +192,26 @@ static void handleSerialCommandLine(char *line) {
     int value = atoi(line + 4);
     manualKillActive = value != 0;
     if (manualKillActive) {
-      heaterSet(0);
-      motorSet(false);
-      heating = false;
-      heaterLockout = true;
-      pidIntegral = 0.0f;
-      pumpTempAllowed = false;
-      pumpOnCmd = false;
-      pumpCmdPwm = 0;
+      // Emergency stop is latched OFF. Releasing it does not restart the rig;
+      // a separate SET_ON 1 command is required.
+      forceSystemOff();
     }
     return;
   }
 
   if (strncmp(line, "SET_ON", 6) == 0) {
     int value = atoi(line + 6);
-    motorEnabled = value != 0;
-    if (!motorEnabled) {
-      motorSet(false);
-      pumpOnCmd = false;
-      pumpCmdPwm = 0;
+    if (value == 1 && systemCanStart()) {
+      // Treat delivery retries as idempotent so an acknowledgement/network
+      // failure cannot repeatedly restart autotune.
+      if (!motorEnabled) {
+        startSystem(millis());
+      }
+    } else {
+      // SET_ON 0 and malformed values both fail safely to OFF. A start request
+      // is also rejected while an emergency stop, runtime limit, or sensor
+      // fault is active.
+      forceSystemOff();
     }
     return;
   }
@@ -285,7 +305,7 @@ void setup() {
 
   heaterSet(0);
   motorSet(false);
-  motorEnabled = true; // auto-enable motor timer after boot
+  motorEnabled = false; // fail-safe boot: web SET_ON 1 is required
 
   Serial.begin(115200);
 
@@ -308,6 +328,7 @@ void setup() {
   lastRateTempCx100 = 0;
 
   resetAutotune(now);
+  forceSystemOff();
 
   printCsvHeader();
 }
@@ -325,10 +346,7 @@ void loop() {
 
   if (!runtimeExpired && (now - programStartMs >= MAX_RUNTIME_MS)) {
     runtimeExpired = true;
-    heaterSet(0);
-    motorSet(false);
-    pumpCmdPwm = 0;
-    motorEnabled = false;
+    forceSystemOff();
   }
 
   // ----- READ TEMP -----
@@ -361,13 +379,7 @@ void loop() {
   }
 
   if (sensorFaultActive) {
-    heating = false;
-    heaterLockout = true;
-    pidIntegral = 0.0f;
-    heaterSet(0);
-    motorSet(false);
-    pumpOnCmd = false;
-    pumpCmdPwm = 0;
+    forceSystemOff();
     if (!wasSensorFaultActive) {
       printCsvRow(CSV_SENSOR_FAULT, now, adc, tempCx100);
     }
@@ -382,14 +394,7 @@ void loop() {
   }
 
   if (manualKillActive) {
-    heating = false;
-    heaterLockout = true;
-    pidIntegral = 0.0f;
-    heaterSet(0);
-    motorSet(false);
-    pumpTempAllowed = false;
-    pumpOnCmd = false;
-    pumpCmdPwm = 0;
+    forceSystemOff();
     updatePumpTelemetry(now, adc, tempCx100);
     static uint32_t lastManualKillPrint = 0;
     if (now - lastManualKillPrint > 1000) {
@@ -397,6 +402,20 @@ void loop() {
       printCsvRow(CSV_SAMPLE, now, adc, tempCx100);
     }
     delay(1000);
+    return;
+  }
+
+  if (!motorEnabled) {
+    // Remain observably OFF while continuing to service serial commands and
+    // publish telemetry. No controller or pump output is evaluated here.
+    forceSystemOff();
+    updatePumpTelemetry(now, adc, tempCx100);
+    static uint32_t lastOffPrint = 0;
+    if (now - lastOffPrint > 1000) {
+      lastOffPrint = now;
+      printCsvRow(CSV_SAMPLE, now, adc, tempCx100);
+    }
+    delay(1);
     return;
   }
 
@@ -411,12 +430,8 @@ void loop() {
     uint8_t pwmCmd = 0;
 
     if (hardKill) {
-      heating = false;
-      heaterLockout = true;
-      pidIntegral = 0.0f;
+      forceSystemOff();
       pwmCmd = 0;
-      motorSet(false);
-      pumpCmdPwm = 0;
       if (!wasHardKillActive) {
         printCsvRow(CSV_HARD_KILL, now, adc, tempCx100);
       }

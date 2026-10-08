@@ -72,6 +72,11 @@ uint8_t applyMotorBias(uint8_t basePwm, uint32_t now) {
   return (uint8_t)out;
 }
 
+uint8_t telemetryControlModeCode() {
+  // Reserve mode 0 for fail-safe OFF; expose running modes as 1-4.
+  return motorEnabled ? (uint8_t)controlMode + 1 : 0;
+}
+
 void resetAutotune(uint32_t now) {
   controlMode = CTRL_AUTOTUNE_WARMUP;
   relayHigh = true;
