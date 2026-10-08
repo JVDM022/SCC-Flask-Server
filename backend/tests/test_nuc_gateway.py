@@ -42,6 +42,8 @@ def test_gateway_telemetry_adds_nuc_metadata():
 def test_serial_command_mapping():
     assert serial_command_for_backend_command({"type": "KILL", "value": 1}) == "KILL 1"
     assert serial_command_for_backend_command({"type": "SET_ON", "value": 0}) == "SET_ON 0"
+    assert serial_command_for_backend_command({"type": "SET_HEATER", "value": 1}) == "SET_HEATER 1"
+    assert serial_command_for_backend_command({"type": "SET_PUMP", "value": 0}) == "SET_PUMP 0"
     assert serial_command_for_backend_command({"type": "SETPOINT", "setpoint_c": 124.5}) == "SETPOINT 124.50"
     assert serial_command_for_backend_command({"type": "OTA"}) is None
 

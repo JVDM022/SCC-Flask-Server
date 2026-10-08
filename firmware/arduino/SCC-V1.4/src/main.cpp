@@ -129,32 +129,54 @@ static void printCsvRow(uint8_t eventCode, uint32_t now, uint16_t adc, int16_t t
   Serial.println((now - programStartMs) / 1000);
 }
 
-static void forceSystemOff() {
-  // This is the single fail-safe shutdown path used by boot, the web OFF
-  // command, emergency stop, faults, and runtime expiry.
+static void stopHeater() {
   heaterSet(0);
-  motorSet(false);
-  motorEnabled = false;
+  heaterEnabled = false;
   heating = false;
   heaterLockout = true;
   pidIntegral = 0.0f;
+}
+
+static void stopPump() {
+  motorSet(false);
+  motorEnabled = false;
   pumpTempAllowed = false;
   pumpOnCmd = false;
   pumpCmdPwm = 0;
+}
+
+static void forceSystemOff() {
+  // This is the single fail-safe shutdown path used by boot, the web OFF
+  // command, emergency stop, faults, and runtime expiry.
+  stopHeater();
+  stopPump();
 }
 
 static bool systemCanStart() {
   return !manualKillActive && !runtimeExpired && !sensorFaultActive;
 }
 
-static void startSystem(uint32_t now) {
-  // Every deliberate start begins a fresh, deterministic controller cycle.
-  resetAutotune(now);
+static void startHeater(uint32_t now) {
+  if (!heaterEnabled) {
+    resetAutotune(now);
+    heaterEnabled = true;
+  }
+}
+
+static void startPump(uint32_t now) {
+  if (motorEnabled) return;
   motorCycleStart = now;
   pumpTempAllowed = false;
   pumpOnCmd = false;
   pumpCmdPwm = 0;
   motorEnabled = true;
+}
+
+static void startSystem(uint32_t now) {
+  // Every deliberate full-system start enables both independently controlled
+  // actuators while preserving all controller safety gates.
+  startHeater(now);
+  startPump(now);
 }
 
 #if ENABLE_SOFTWARE_BOOTLOADER_ENTRY
@@ -204,7 +226,7 @@ static void handleSerialCommandLine(char *line) {
     if (value == 1 && systemCanStart()) {
       // Treat delivery retries as idempotent so an acknowledgement/network
       // failure cannot repeatedly restart autotune.
-      if (!motorEnabled) {
+      if (!heaterEnabled || !motorEnabled) {
         startSystem(millis());
       }
     } else {
@@ -212,6 +234,26 @@ static void handleSerialCommandLine(char *line) {
       // is also rejected while an emergency stop, runtime limit, or sensor
       // fault is active.
       forceSystemOff();
+    }
+    return;
+  }
+
+  if (strncmp(line, "SET_HEATER", 10) == 0) {
+    int value = atoi(line + 10);
+    if (value == 1 && systemCanStart()) {
+      startHeater(millis());
+    } else {
+      stopHeater();
+    }
+    return;
+  }
+
+  if (strncmp(line, "SET_PUMP", 8) == 0) {
+    int value = atoi(line + 8);
+    if (value == 1 && systemCanStart()) {
+      startPump(millis());
+    } else {
+      stopPump();
     }
     return;
   }
@@ -305,6 +347,7 @@ void setup() {
 
   heaterSet(0);
   motorSet(false);
+  heaterEnabled = false;
   motorEnabled = false; // fail-safe boot: web SET_ON 1 is required
 
   Serial.begin(115200);
@@ -405,7 +448,7 @@ void loop() {
     return;
   }
 
-  if (!motorEnabled) {
+  if (!heaterEnabled && !motorEnabled) {
     // Remain observably OFF while continuing to service serial commands and
     // publish telemetry. No controller or pump output is evaluated here.
     forceSystemOff();
@@ -435,7 +478,7 @@ void loop() {
       if (!wasHardKillActive) {
         printCsvRow(CSV_HARD_KILL, now, adc, tempCx100);
       }
-    } else {
+    } else if (heaterEnabled) {
       if (controlMode == CTRL_PID_RAMP || controlMode == CTRL_PID_HOLD) {
         pwmCmd = computePidPwm(tempCx100, now);
         if (tempCx100 < HEATER_BIAS_MAX_Cx100) {
@@ -447,6 +490,9 @@ void loop() {
         pwmCmd = computeAutotunePwm(tempCx100, now);
       }
       heating = (pwmCmd > 0);
+    } else {
+      heating = false;
+      pwmCmd = 0;
     }
 
     if (!heating) pwmCmd = 0;

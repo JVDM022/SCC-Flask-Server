@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Activity, Flame, Gauge, Power, PowerOff, RotateCcw, ShieldAlert, Thermometer } from 'lucide-react';
 
-import { queueManualKill, queuePowerCommand } from '../api/client';
+import { queueHeaterCommand, queueManualKill, queuePowerCommand, queuePumpCommand } from '../api/client';
 import { AlarmPanel } from '../components/AlarmPanel';
 import { MetricCard } from '../components/MetricCard';
 import { TimelinePanel } from '../components/TimelinePanel';
@@ -18,7 +18,10 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
   const latest = data.latest;
   const tempError = latest?.temp_c !== null && latest?.setpoint_c !== null && latest?.temp_c !== undefined && latest?.setpoint_c !== undefined ? latest.temp_c - latest.setpoint_c : null;
   const manualKillActive = Boolean(latest?.manual_kill);
-  const systemEnabled = Boolean(latest?.pump_enabled);
+  const heaterEnabled = Boolean(latest?.mode);
+  const pumpEnabled = Boolean(latest?.pump_enabled);
+  const systemEnabled = heaterEnabled || pumpEnabled;
+  const systemFullyEnabled = heaterEnabled && pumpEnabled;
   const invalidateControlData = () => {
     queryClient.invalidateQueries({ queryKey: ['dashboard-data'] });
     queryClient.invalidateQueries({ queryKey: ['mqtt-status'] });
@@ -32,9 +35,22 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
     mutationFn: queuePowerCommand,
     onSuccess: invalidateControlData,
   });
+  const heaterMutation = useMutation({
+    mutationFn: queueHeaterCommand,
+    onSuccess: invalidateControlData,
+  });
+  const pumpMutation = useMutation({
+    mutationFn: queuePumpCommand,
+    onSuccess: invalidateControlData,
+  });
   const requestedPowerState = powerMutation.isPending ? powerMutation.variables : null;
   const safetyError = safetyMutation.error instanceof Error ? safetyMutation.error.message : 'Command failed';
   const powerError = powerMutation.error instanceof Error ? powerMutation.error.message : 'Command failed';
+  const actuatorError = heaterMutation.error instanceof Error
+    ? heaterMutation.error.message
+    : pumpMutation.error instanceof Error
+      ? pumpMutation.error.message
+      : 'Command failed';
   const x = data.history.map((row) => row.created_at || row.ms || 'N/A');
   const horizon5 = data.prediction.predictions?.find((item) => item.horizon_s === 5);
   const predictedLine = data.history.map(() => null as number | null);
@@ -57,7 +73,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
         <div className="panel__header">
           <div>
             <h2>Manual System Control</h2>
-            <p>Turn On and Turn Off control both heater and pump; Emergency Off latches the controller off</p>
+            <p>Control the full system or toggle the regulated heater and temperature-gated pump individually</p>
           </div>
           <ShieldAlert size={20} />
         </div>
@@ -65,7 +81,7 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
           <button
             className="safety-button safety-button--power-on"
             onClick={() => powerMutation.mutate(true)}
-            disabled={powerMutation.isPending || manualKillActive || systemEnabled}
+            disabled={powerMutation.isPending || heaterMutation.isPending || pumpMutation.isPending || manualKillActive || systemFullyEnabled}
             type="button"
           >
             <Power size={18} />
@@ -74,11 +90,29 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
           <button
             className="safety-button safety-button--power-off"
             onClick={() => powerMutation.mutate(false)}
-            disabled={powerMutation.isPending || !systemEnabled}
+            disabled={powerMutation.isPending || heaterMutation.isPending || pumpMutation.isPending || !systemEnabled}
             type="button"
           >
             <PowerOff size={18} />
             {requestedPowerState === false ? 'Turning Off' : 'Turn Off'}
+          </button>
+          <button
+            className={`safety-button safety-button--heater ${heaterEnabled ? 'is-enabled' : ''}`}
+            onClick={() => heaterMutation.mutate(!heaterEnabled)}
+            disabled={heaterMutation.isPending || powerMutation.isPending || safetyMutation.isPending || manualKillActive}
+            type="button"
+          >
+            <Flame size={18} />
+            {heaterMutation.isPending ? 'Changing Heater' : heaterEnabled ? 'Turn Heater Off' : 'Turn Heater On'}
+          </button>
+          <button
+            className={`safety-button safety-button--pump ${pumpEnabled ? 'is-enabled' : ''}`}
+            onClick={() => pumpMutation.mutate(!pumpEnabled)}
+            disabled={pumpMutation.isPending || powerMutation.isPending || safetyMutation.isPending || manualKillActive}
+            type="button"
+          >
+            <RotateCcw size={18} />
+            {pumpMutation.isPending ? 'Changing Pump' : pumpEnabled ? 'Turn Pump Off' : 'Turn Pump On'}
           </button>
           <button
             className="safety-button safety-button--kill"
@@ -99,9 +133,12 @@ export function OperationsDashboard({ data }: OperationsDashboardProps) {
             Release Manual Kill
           </button>
           <span className={`safety-state ${manualKillActive ? 'critical' : systemEnabled ? 'normal' : 'off'}`}>
-            {manualKillActive ? 'Emergency off latched' : systemEnabled ? 'System on' : 'System off'}
+            {manualKillActive
+              ? 'Emergency off latched'
+              : `Heater ${heaterEnabled ? 'on' : 'off'} · Pump ${pumpEnabled ? 'on' : 'off'}`}
           </span>
           {powerMutation.isError ? <span className="safety-error">{powerError}</span> : null}
+          {heaterMutation.isError || pumpMutation.isError ? <span className="safety-error">{actuatorError}</span> : null}
           {safetyMutation.isError ? <span className="safety-error">{safetyError}</span> : null}
         </div>
       </section>

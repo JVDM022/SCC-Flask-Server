@@ -307,7 +307,10 @@ def control_manual_kill():
     # any queued start command so it cannot run after the stop is released.
     ControlCommand.query.filter_by(command_type="KILL", applied=False).delete(synchronize_session=False)
     if enabled:
-        ControlCommand.query.filter_by(command_type="SET_ON", applied=False).delete(synchronize_session=False)
+        ControlCommand.query.filter(
+            ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP"]),
+            ControlCommand.applied.is_(False),
+        ).delete(synchronize_session=False)
     command = ControlCommand(command_type="KILL", value=1 if enabled else 0, setpoint_c=0.0)
     db.session.add(command)
     db.session.commit()
@@ -332,7 +335,10 @@ def control_power():
     enabled = payload["enabled"]
     # A queued power command represents desired state, so a newer click
     # supersedes any older unsent ON/OFF command.
-    ControlCommand.query.filter_by(command_type="SET_ON", applied=False).delete(synchronize_session=False)
+    ControlCommand.query.filter(
+        ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP"]),
+        ControlCommand.applied.is_(False),
+    ).delete(synchronize_session=False)
     command = ControlCommand(command_type="SET_ON", value=1 if enabled else 0, setpoint_c=0.0)
     db.session.add(command)
     db.session.commit()
@@ -346,3 +352,43 @@ def control_power():
             "warning": "Power commands are polled by the Intel NUC gateway and enforced by Arduino firmware safety limits.",
         }
     )
+
+
+def _queue_actuator_command(command_type: str, enabled: bool):
+    # The newest actuator request supersedes an older full-system request, but
+    # preserves a pending request for the other actuator.
+    ControlCommand.query.filter(
+        ControlCommand.command_type.in_(["SET_ON", command_type]),
+        ControlCommand.applied.is_(False),
+    ).delete(synchronize_session=False)
+    command = ControlCommand(command_type=command_type, value=1 if enabled else 0, setpoint_c=0.0)
+    db.session.add(command)
+    db.session.commit()
+    return jsonify(
+        {
+            "status": "queued",
+            "id": command.id,
+            "type": command_type,
+            "value": command.value,
+            "enabled": enabled,
+            "warning": "The Arduino firmware continues to enforce emergency, sensor, temperature, and runtime safety limits.",
+        }
+    )
+
+
+@api.post("/control/heater")
+@require_api_key
+def control_heater():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return jsonify({"status": "error", "message": "enabled must be provided as a boolean"}), 400
+    return _queue_actuator_command("SET_HEATER", payload["enabled"])
+
+
+@api.post("/control/pump")
+@require_api_key
+def control_pump():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return jsonify({"status": "error", "message": "enabled must be provided as a boolean"}), 400
+    return _queue_actuator_command("SET_PUMP", payload["enabled"])

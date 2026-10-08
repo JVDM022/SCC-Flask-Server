@@ -135,10 +135,15 @@ void test_motor_bias_adds_prebias_and_on_bias_with_pwm_clamp() {
 
 void test_telemetry_mode_reports_off_until_system_is_enabled() {
   controlMode = CTRL_AUTOTUNE_WARMUP;
+  heaterEnabled = false;
   motorEnabled = false;
   TEST_ASSERT_EQUAL_UINT8(0, telemetryControlModeCode());
 
+  // Pump-only operation leaves the thermal controller mode OFF.
   motorEnabled = true;
+  TEST_ASSERT_EQUAL_UINT8(0, telemetryControlModeCode());
+
+  heaterEnabled = true;
   TEST_ASSERT_EQUAL_UINT8(1, telemetryControlModeCode());
   controlMode = CTRL_PID_HOLD;
   TEST_ASSERT_EQUAL_UINT8(4, telemetryControlModeCode());

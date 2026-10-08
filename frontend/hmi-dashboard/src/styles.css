@@ -413,6 +413,21 @@ button {
   background: rgba(120, 53, 15, 0.38);
 }
 
+.safety-button--heater {
+  border-color: rgba(249, 115, 22, 0.68);
+  background: rgba(124, 45, 18, 0.34);
+}
+
+.safety-button--pump {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(12, 74, 110, 0.32);
+}
+
+.safety-button--heater.is-enabled,
+.safety-button--pump.is-enabled {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
 .safety-state,
 .safety-error {
   min-height: 28px;

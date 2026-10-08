@@ -201,3 +201,11 @@ export async function queueManualKill(enabled: boolean): Promise<{ status: strin
 export async function queuePowerCommand(enabled: boolean): Promise<{ status: string; id: number; enabled: boolean }> {
   return postJson('/control/power', { enabled });
 }
+
+export async function queueHeaterCommand(enabled: boolean): Promise<{ status: string; id: number; enabled: boolean }> {
+  return postJson('/control/heater', { enabled });
+}
+
+export async function queuePumpCommand(enabled: boolean): Promise<{ status: string; id: number; enabled: boolean }> {
+  return postJson('/control/pump', { enabled });
+}

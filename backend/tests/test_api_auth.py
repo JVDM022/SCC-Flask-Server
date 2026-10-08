@@ -166,6 +166,39 @@ def test_power_control_queues_turn_off_command(client):
         assert command.value == 0
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "command_type"),
+    [("heater", "SET_HEATER"), ("pump", "SET_PUMP")],
+)
+def test_individual_actuator_control_queues_command(client, endpoint, command_type):
+    response = client.post(
+        f"/api/control/{endpoint}",
+        json={"enabled": True},
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["enabled"] is True
+    with client.application.app_context():
+        command = ControlCommand.query.one()
+        assert command.command_type == command_type
+        assert command.value == 1
+
+
+@pytest.mark.parametrize("endpoint", ["heater", "pump"])
+@pytest.mark.parametrize("payload", [{}, {"enabled": "false"}, {"enabled": 1}])
+def test_individual_actuator_control_rejects_non_boolean_state(client, endpoint, payload):
+    response = client.post(
+        f"/api/control/{endpoint}",
+        json=payload,
+        headers={"X-API-Key": "test-write-key"},
+    )
+
+    assert response.status_code == 400
+    with client.application.app_context():
+        assert ControlCommand.query.count() == 0
+
+
 @pytest.mark.parametrize("payload", [{}, {"enabled": "false"}, {"enabled": 1}])
 def test_power_control_rejects_non_boolean_state(client, payload):
     response = client.post(
@@ -191,6 +224,17 @@ def test_latest_power_command_supersedes_older_unsent_state(client):
         assert commands[0].value == 0
 
 
+def test_individual_actuator_command_supersedes_older_full_system_command(client):
+    headers = {"X-API-Key": "test-write-key"}
+    assert client.post("/api/control/power", json={"enabled": True}, headers=headers).status_code == 200
+    assert client.post("/api/control/pump", json={"enabled": True}, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        commands = ControlCommand.query.all()
+        assert len(commands) == 1
+        assert commands[0].command_type == "SET_PUMP"
+
+
 def test_emergency_stop_cancels_unsent_start_command(client):
     headers = {"X-API-Key": "test-write-key"}
     assert client.post("/api/control/power", json={"enabled": True}, headers=headers).status_code == 200
@@ -201,6 +245,18 @@ def test_emergency_stop_cancels_unsent_start_command(client):
         assert len(commands) == 1
         assert commands[0].command_type == "KILL"
         assert commands[0].value == 1
+
+
+def test_emergency_stop_cancels_individual_actuator_commands(client):
+    headers = {"X-API-Key": "test-write-key"}
+    assert client.post("/api/control/heater", json={"enabled": True}, headers=headers).status_code == 200
+    assert client.post("/api/control/pump", json={"enabled": True}, headers=headers).status_code == 200
+    assert client.post("/api/control/manual-kill", json={"enabled": True}, headers=headers).status_code == 200
+
+    with client.application.app_context():
+        commands = ControlCommand.query.all()
+        assert len(commands) == 1
+        assert commands[0].command_type == "KILL"
 
 
 def test_repeated_alarm_condition_keeps_one_active_alarm(client):

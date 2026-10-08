@@ -202,7 +202,13 @@ def get_next_firmware_command():
 
     control_command = (
         ControlCommand.query.filter_by(applied=False)
-        .filter(ControlCommand.command_type.in_(["KILL", "SETPOINT", "SET_ON"] if device in NUC_DEVICE_ALIASES else ["KILL"]))
+        .filter(
+            ControlCommand.command_type.in_(
+                ["KILL", "SETPOINT", "SET_ON", "SET_HEATER", "SET_PUMP"]
+                if device in NUC_DEVICE_ALIASES
+                else ["KILL"]
+            )
+        )
         .order_by(ControlCommand.created_at.asc(), ControlCommand.id.asc())
         .first()
     )

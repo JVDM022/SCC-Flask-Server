@@ -12,6 +12,7 @@ enum ControlMode : uint8_t {
 
 extern uint32_t motorCycleStart;
 extern bool motorEnabled;
+extern bool heaterEnabled;
 extern bool heating;
 extern bool heaterLockout;
 

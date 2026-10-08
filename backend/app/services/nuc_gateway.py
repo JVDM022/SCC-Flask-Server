@@ -72,6 +72,10 @@ def serial_command_for_backend_command(command: dict[str, Any]) -> str | None:
         return f"KILL {int(command.get('value') or 0)}"
     if command_type == "SET_ON":
         return f"SET_ON {int(command.get('value') or 0)}"
+    if command_type == "SET_HEATER":
+        return f"SET_HEATER {int(command.get('value') or 0)}"
+    if command_type == "SET_PUMP":
+        return f"SET_PUMP {int(command.get('value') or 0)}"
     if command_type == "SETPOINT":
         setpoint_c = float(command.get("setpoint_c"))
         return f"SETPOINT {setpoint_c:.2f}"
