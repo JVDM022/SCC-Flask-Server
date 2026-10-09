@@ -66,7 +66,7 @@
 
 // ================== MOTOR TIMING ==================
 #define MOTOR_PERIOD_MS    30000UL   // cycle period
-#define MOTOR_ON_MS         1000UL   // ON duration in each cycle
+#define MOTOR_ON_MS         3000UL   // ON duration in each cycle
 #define MOTOR_START_MS       250UL   // startup kick duration
 #define MOTOR_START_PWM      180     // startup kick PWM
 
