@@ -3,10 +3,13 @@
 
 #include "config.h"
 
-static inline bool nextPumpTempAllowed(bool currentAllowed, int16_t tempCx100) {
+static inline bool nextPumpTempAllowedAt(
+    bool currentAllowed,
+    int16_t tempCx100,
+    int16_t enableTempCx100) {
   bool allowed = currentAllowed;
 
-  if (tempCx100 >= PUMP_ENABLE_Cx100 && tempCx100 < SAFE_TEMP_HIGH_Cx100) {
+  if (tempCx100 >= enableTempCx100 && tempCx100 < SAFE_TEMP_HIGH_Cx100) {
     allowed = true;
   }
   if (tempCx100 <= PUMP_DISABLE_Cx100 || tempCx100 >= SAFE_TEMP_HIGH_Cx100) {
@@ -14,6 +17,10 @@ static inline bool nextPumpTempAllowed(bool currentAllowed, int16_t tempCx100) {
   }
 
   return allowed;
+}
+
+static inline bool nextPumpTempAllowed(bool currentAllowed, int16_t tempCx100) {
+  return nextPumpTempAllowedAt(currentAllowed, tempCx100, PUMP_ENABLE_Cx100);
 }
 
 static inline uint8_t pumpPwmForPhase(uint32_t phaseMs) {

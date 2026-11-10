@@ -23,9 +23,8 @@ from ..database.models import (
     MqttMessageLog,
     Telemetry,
 )
-from ..ml.predictor import ThermalPredictor
-from ..mpc.advisory import recommend_heater_pwm
 from ..realtime import socketio
+from .mpc_control import get_predictor, recent_telemetry_history, recommendation_for
 from .pump_cycles import extract_pump_cycle_from_event
 from .notification_email import notify_critical_alarms
 from .telemetry_parser import TELEMETRY_COLUMNS
@@ -33,6 +32,7 @@ from .telemetry_parser import TELEMETRY_COLUMNS
 LOGGER = logging.getLogger(__name__)
 SUBSCRIBED_SUFFIXES = ("telemetry", "state", "alarm", "heartbeat", "ota/status")
 MAX_INT32 = 2_147_483_647
+MAX_INT64 = 9_223_372_036_854_775_807
 EVENT_NAMES = {
     1: "pump start",
     2: "pump end",
@@ -187,7 +187,7 @@ def normalize_telemetry(parts: TopicParts, payload: dict[str, Any], topic: str) 
         "mqtt_topic": topic,
         "raw_payload": payload,
         "event": int_value(payload.get("event"), 0),
-        "ms": bounded_int(ms_value),
+        "ms": bounded_int(ms_value, upper=MAX_INT64),
         "temp_c": temp_c,
         "adc": int_value(payload.get("adc", sensors.get("adc")), 0),
         "dtemp_c_per_s": number_value(payload.get("dtemp_c_per_s"), 0.0),
@@ -236,8 +236,9 @@ def store_telemetry(row: dict[str, Any]) -> tuple[Telemetry, list[dict]]:
 
 
 def store_predictions_and_mpc(app: Flask, telemetry: Telemetry) -> None:
-    predictor = ThermalPredictor(app.config["MODEL_DIR"])
-    prediction_response = predictor.predict_all(telemetry.to_dict())
+    predictor = get_predictor()
+    history = recent_telemetry_history(telemetry)
+    prediction_response = predictor.predict_all(telemetry.to_dict(), history=history)
     for prediction in prediction_response.get("predictions", []):
         db.session.add(
             MlPredictionRecord(
@@ -252,7 +253,7 @@ def store_predictions_and_mpc(app: Flask, telemetry: Telemetry) -> None:
             )
         )
     try:
-        mpc = recommend_heater_pwm(telemetry.to_dict(), predictor=predictor)
+        mpc = recommendation_for(telemetry, advisory_only=True)
     except Exception as exc:
         LOGGER.warning("MPC advisory skipped after MQTT ingest: %s", exc)
         return

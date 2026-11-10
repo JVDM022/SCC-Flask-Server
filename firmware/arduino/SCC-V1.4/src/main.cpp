@@ -3,6 +3,7 @@
 #include "bootloader_entry.h"
 #include "config.h"
 #include "controller.h"
+#include "mpc_override.h"
 #include "pump_policy.h"
 #include "telemetry_schema.h"
 #include "temperature.h"
@@ -20,6 +21,7 @@ static bool sensorFaultActive = false;
 static bool manualKillActive = false;
 static char serialCommandBuf[32];
 static uint8_t serialCommandIdx = 0;
+static MpcOverrideState mpcOverride = {false, 0, 0, 0};
 
 static bool pumpOnCmd = false;
 static bool pumpWasOn = false;
@@ -130,6 +132,7 @@ static void printCsvRow(uint8_t eventCode, uint32_t now, uint16_t adc, int16_t t
 }
 
 static void stopHeater() {
+  clearMpcOverride(mpcOverride);
   heaterSet(0);
   heaterEnabled = false;
   heating = false;
@@ -258,6 +261,33 @@ static void handleSerialCommandLine(char *line) {
     return;
   }
 
+  if (strncmp(line, "MPC_CONTROL", 11) == 0) {
+    char *cursor = line + 11;
+    int value = (int)strtol(cursor, &cursor, 10);
+    float preheatC = atof(cursor);
+    int32_t preheatCx100 = (int32_t)((preheatC * 100.0f) + 0.5f);
+    int16_t preheatUpperBoundCx100 = targetSetpointCx100 > MPC_PREHEAT_LIMIT_Cx100
+        ? targetSetpointCx100
+        : MPC_PREHEAT_LIMIT_Cx100;
+    if (value >= 0 && value <= HEATER_PWM_MAX && preheatCx100 >= targetSetpointCx100 &&
+        preheatCx100 <= preheatUpperBoundCx100 && systemCanStart() && heaterEnabled) {
+      setMpcOverride(mpcOverride, value, preheatCx100, targetSetpointCx100, millis());
+    } else {
+      clearMpcOverride(mpcOverride);
+    }
+    return;
+  }
+
+  if (strncmp(line, "MPC_PWM", 7) == 0) {
+    int value = atoi(line + 7);
+    if (value >= 0 && value <= HEATER_PWM_MAX && systemCanStart() && heaterEnabled) {
+      setMpcOverride(mpcOverride, value, targetSetpointCx100, targetSetpointCx100, millis());
+    } else {
+      clearMpcOverride(mpcOverride);
+    }
+    return;
+  }
+
   if (strncmp(line, "SETPOINT", 8) == 0) {
     float valueC = atof(line + 8);
     int16_t valueCx100 = (int16_t)((valueC * 100.0f) + (valueC >= 0.0f ? 0.5f : -0.5f));
@@ -369,6 +399,7 @@ void setup() {
   recoveryComplete = false;
   lastRateMs = 0;
   lastRateTempCx100 = 0;
+  clearMpcOverride(mpcOverride);
 
   resetAutotune(now);
   forceSystemOff();
@@ -387,10 +418,12 @@ void loop() {
   }
 #endif
 
+#if ENABLE_RUNTIME_LIMIT
   if (!runtimeExpired && (now - programStartMs >= MAX_RUNTIME_MS)) {
     runtimeExpired = true;
     forceSystemOff();
   }
+#endif
 
   // ----- READ TEMP -----
   uint16_t adc = readAdcAvg();
@@ -480,9 +513,31 @@ void loop() {
       }
     } else if (heaterEnabled) {
       if (controlMode == CTRL_PID_RAMP || controlMode == CTRL_PID_HOLD) {
-        pwmCmd = computePidPwm(tempCx100, now);
-        if (tempCx100 < HEATER_BIAS_MAX_Cx100) {
-          pwmCmd = applyMotorBias(pwmCmd, now);
+        bool useMpc = controlMode == CTRL_PID_HOLD && mpcOverrideFresh(mpcOverride, now);
+        if (useMpc) {
+          int16_t mpcControlTargetCx100 = mpcOverride.preheatTargetCx100;
+          if (tempCx100 >= OFF_LOCKOUT_HIGH_Cx100) heaterLockout = true;
+          if (heaterLockout && tempCx100 <= OFF_LOCKOUT_LOW_Cx100) heaterLockout = false;
+
+          if (heaterLockout || tempCx100 >= mpcTemperatureCeilingCx100(mpcControlTargetCx100)) {
+            pwmCmd = 0;
+          } else {
+            pwmCmd = mpcOverride.pwm;
+            if (tempCx100 < HEATER_BIAS_MAX_Cx100) {
+              pwmCmd = applyMotorBias(pwmCmd, now);
+            }
+          }
+
+          // Keep the local controller ready for a smooth watchdog fallback.
+          pidIntegral = 0.0f;
+          pidLastTempC = tempCx100 / 100.0f;
+          pidLastMs = now;
+        } else {
+          if (mpcOverride.active) clearMpcOverride(mpcOverride);
+          pwmCmd = computePidPwm(tempCx100, now);
+          if (tempCx100 < HEATER_BIAS_MAX_Cx100) {
+            pwmCmd = applyMotorBias(pwmCmd, now);
+          }
         }
       } else {
         // During autotune, keep motor ON as required, but do not distort relay data
@@ -501,7 +556,18 @@ void loop() {
 
   // ----- MOTOR TIMER -----
   bool pumpWasAllowed = pumpTempAllowed;
-  pumpTempAllowed = nextPumpTempAllowed(pumpTempAllowed, tempCx100);
+  int16_t pumpEnableCx100 = PUMP_ENABLE_Cx100;
+  if (controlMode == CTRL_PID_HOLD && mpcOverrideFresh(mpcOverride, now) &&
+      mpcOverride.preheatTargetCx100 > pumpEnableCx100) {
+    pumpEnableCx100 = mpcOverride.preheatTargetCx100;
+  }
+  bool mlPreheatWaiting = pumpEnableCx100 > PUMP_ENABLE_Cx100 &&
+      !pumpOnCmd && tempCx100 < pumpEnableCx100;
+  if (mlPreheatWaiting) {
+    pumpTempAllowed = false;
+  } else {
+    pumpTempAllowed = nextPumpTempAllowedAt(pumpTempAllowed, tempCx100, pumpEnableCx100);
+  }
 
   if (!pumpWasAllowed && pumpTempAllowed) {
     motorCycleStart = now;

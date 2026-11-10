@@ -18,7 +18,7 @@
 
 | Service | Image or build source | Port | Purpose |
 | --- | --- | --- | --- |
-| Backend | `backend/Dockerfile` using Python `3.11-slim` | `5050:5000` | Runs the Flask/Gunicorn API, MQTT subscriber, telemetry parser, alarm rules, ML prediction, MPC advisory logic, and firmware command APIs |
+| Backend | `backend/Dockerfile` using Python `3.11-slim` | `5050:5000` | Runs the Flask/Gunicorn API, MQTT subscriber, telemetry parser, alarm rules, ML prediction, guarded MPC, and firmware command APIs |
 | Frontend | `node:22-alpine` | `5173:5173` | Runs the React/Vite HMI dashboard for live monitoring, alarms, trends, MPC, ML, equipment health, settings, and firmware views |
 | PostgreSQL | `postgres:16` | `5432:5432` | Stores telemetry, alarms, events, pump-cycle records, predictions, command state, and other backend data |
 | MQTT Broker | `eclipse-mosquitto:2` | `1883:1883`, `9001:9001` | Receives legacy ESP32 telemetry messages and exposes MQTT/WebSocket transport for local communication |
@@ -99,7 +99,27 @@
     CLOUDFLARE_TUNNEL_TOKEN=<cloudflare-token>
     ```
 
-## 10.4. Post-Deployment Checks
+## 10.4. Enabling Closed-Loop MPC
+
+Keep MPC disabled until the updated Arduino firmware is installed. Place `best_model_1s.joblib`, `best_model_5s.joblib`, `best_model_10s.joblib`, and `feature_columns.json` in the server's `models/` directory. Stop the NUC gateway so it releases the serial port, upload the firmware using the stable `/dev/serial/by-id/...` path, and restart the gateway.
+
+With local PID fallback confirmed, add this setting to `.env` and rebuild the backend:
+
+```text
+MPC_CLOSED_LOOP_ENABLED=1
+MPC_PREHEAT_MAX_C=128.0
+```
+
+```bash
+docker compose up -d --build backend frontend
+curl http://localhost:5050/api/mpc/status
+```
+
+Expected status includes `closed_loop_enabled: true`, horizon `5` in `available_horizons`, `max_pwm: 200`, `preheat_max_c: 128.0`, and `firmware_watchdog_ms: 3500`. The controller waits for ten contiguous live NUC samples and PID-hold mode before sending combined `MPC_CONTROL` commands containing heater PWM and the bounded preheat target. Disable closed loop immediately by restoring `MPC_CLOSED_LOOP_ENABLED=0` and rebuilding/restarting the backend if behavior is unexpected.
+
+`MPC_PREHEAT_MAX_C` must not exceed the independently reviewed firmware value `MPC_PREHEAT_LIMIT_Cx100`. Raising the validated operating envelope also requires reviewing `OFF_LOCKOUT_HIGH_Cx100`, `OFF_LOCKOUT_LOW_Cx100`, `SAFE_TEMP_HIGH_Cx100`, and `HEATER_KILL_Cx100`; do not make the ML model responsible for those limits.
+
+## 10.5. Post-Deployment Checks
 
 | Check | Expected Result |
 | --- | --- |
@@ -112,3 +132,14 @@
 | Alarm display | Active safety alarms appear in backend API responses and the dashboard |
 | Manual kill command | `KILL 1` command can be queued only when write authentication is configured |
 | Data persistence | PostgreSQL volume `postgres-data` persists after container restart |
+
+## 10.6. Existing Database Upgrade for Long Arduino Uptime
+
+Arduino `millis()` exceeds PostgreSQL's signed 32-bit `INTEGER` limit after approximately 24.85 days. Existing installations must apply the included idempotent type migration once:
+
+```bash
+docker compose exec -T postgres psql -U scc -d scc_control \
+  -f /dev/stdin < database/migrations/2026_11_10_telemetry_ms_bigint.sql
+```
+
+The `telemetry.ms` column will then accept the complete unsigned 32-bit Arduino counter. The NUC gateway also keeps polling control commands if a future telemetry post fails.

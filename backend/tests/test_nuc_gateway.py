@@ -44,6 +44,10 @@ def test_serial_command_mapping():
     assert serial_command_for_backend_command({"type": "SET_ON", "value": 0}) == "SET_ON 0"
     assert serial_command_for_backend_command({"type": "SET_HEATER", "value": 1}) == "SET_HEATER 1"
     assert serial_command_for_backend_command({"type": "SET_PUMP", "value": 0}) == "SET_PUMP 0"
+    assert serial_command_for_backend_command({"type": "MPC_PWM", "value": 184}) == "MPC_PWM 184"
+    assert serial_command_for_backend_command(
+        {"type": "MPC_CONTROL", "value": 200, "setpoint_c": 128.0}
+    ) == "MPC_CONTROL 200 128.00"
     assert serial_command_for_backend_command({"type": "SETPOINT", "setpoint_c": 124.5}) == "SETPOINT 124.50"
     assert serial_command_for_backend_command({"type": "OTA"}) is None
 
@@ -83,3 +87,30 @@ def test_avrdude_command_uses_uploaded_hex_and_usb_port():
     assert command[:7] == ["avrdude", "-v", "-p", "atmega328p", "-c", "arduino", "-P"]
     assert "/dev/ttyACM0" in command
     assert "flash:w:/tmp/controller.hex:i" in command
+
+
+def test_gateway_command_polling_continues_when_telemetry_post_fails(monkeypatch):
+    gateway = NucGateway(config())
+    handled = []
+
+    monkeypatch.setattr(gateway, "open_serial", lambda: None)
+    monkeypatch.setattr(gateway, "read_once", lambda: (_ for _ in ()).throw(RuntimeError("database unavailable")))
+    monkeypatch.setattr(gateway, "send_heartbeat", lambda: None)
+    monkeypatch.setattr(gateway, "poll_command", lambda: {"cmdId": 1, "type": "SET_ON", "value": 1})
+    monkeypatch.setattr(gateway, "handle_command", lambda command: handled.append(command))
+    monkeypatch.setattr("app.services.nuc_gateway.time.monotonic", lambda: 100.0)
+
+    original_handle = gateway.handle_command
+
+    def handle_then_stop(command):
+        original_handle(command)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(gateway, "handle_command", handle_then_stop)
+
+    try:
+        gateway.run_forever()
+    except KeyboardInterrupt:
+        pass
+
+    assert handled == [{"cmdId": 1, "type": "SET_ON", "value": 1}]

@@ -65,6 +65,13 @@ def control_command_payload(command: ControlCommand) -> dict[str, Any]:
         return {"cmdId": cmd_id, "type": "KILL", "value": command.value}
     if command.command_type == "SETPOINT":
         return {"cmdId": cmd_id, "type": "SETPOINT", "setpoint_c": command.setpoint_c}
+    if command.command_type == "MPC_CONTROL":
+        return {
+            "cmdId": cmd_id,
+            "type": "MPC_CONTROL",
+            "value": command.value,
+            "setpoint_c": command.setpoint_c,
+        }
     return {"cmdId": cmd_id, "type": command.command_type, "value": command.value}
 
 
@@ -204,7 +211,7 @@ def get_next_firmware_command():
         ControlCommand.query.filter_by(applied=False)
         .filter(
             ControlCommand.command_type.in_(
-                ["KILL", "SETPOINT", "SET_ON", "SET_HEATER", "SET_PUMP"]
+                ["KILL", "SETPOINT", "SET_ON", "SET_HEATER", "SET_PUMP", "MPC_PWM", "MPC_CONTROL"]
                 if device in NUC_DEVICE_ALIASES
                 else ["KILL"]
             )

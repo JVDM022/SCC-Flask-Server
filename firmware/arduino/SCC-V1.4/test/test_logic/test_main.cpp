@@ -2,6 +2,7 @@
 #include <unity.h>
 #include "config.h"
 #include "bootloader_entry.h"
+#include "mpc_override.h"
 #include "pump_policy.h"
 #include "telemetry_schema.h"
 #include "temperature.h"
@@ -76,6 +77,13 @@ void test_pump_temperature_gate_enables_with_headroom() {
   TEST_ASSERT_TRUE(nextPumpTempAllowed(false, SAFE_TEMP_HIGH_Cx100 - 1));
 }
 
+void test_pump_temperature_gate_can_wait_for_ml_preheat_target() {
+  TEST_ASSERT_FALSE(nextPumpTempAllowedAt(false, MPC_PREHEAT_LIMIT_Cx100 - 1,
+                                         MPC_PREHEAT_LIMIT_Cx100));
+  TEST_ASSERT_TRUE(nextPumpTempAllowedAt(false, MPC_PREHEAT_LIMIT_Cx100,
+                                        MPC_PREHEAT_LIMIT_Cx100));
+}
+
 void test_pump_enable_threshold_matches_operating_setpoint() {
   TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100, PUMP_ENABLE_Cx100);
 }
@@ -131,6 +139,43 @@ void test_motor_bias_adds_prebias_and_on_bias_with_pwm_clamp() {
   TEST_ASSERT_EQUAL_UINT8(10 + MOTOR_HEAT_BIAS_PRE,
                           applyMotorBias(10, 1000 + MOTOR_PERIOD_MS - MOTOR_PREBIAS_MS));
   TEST_ASSERT_EQUAL_UINT8(HEATER_PWM_MAX, applyMotorBias(HEATER_PWM_MAX, 1000));
+}
+
+void test_mpc_override_clamps_to_firmware_heater_limit() {
+  MpcOverrideState state = {false, 0, 0, 0};
+  setMpcOverride(state, 255, MPC_PREHEAT_LIMIT_Cx100, SETPOINT_Cx100, 1000);
+
+  TEST_ASSERT_TRUE(state.active);
+  TEST_ASSERT_EQUAL_UINT8(HEATER_PWM_MAX, state.pwm);
+  TEST_ASSERT_EQUAL_INT16(MPC_PREHEAT_LIMIT_Cx100, state.preheatTargetCx100);
+}
+
+void test_mpc_override_expires_and_can_be_cleared() {
+  MpcOverrideState state = {false, 0, 0, 0};
+  setMpcOverride(state, 128, MPC_PREHEAT_LIMIT_Cx100 + 500, SETPOINT_Cx100, 1000);
+
+  TEST_ASSERT_TRUE(mpcOverrideFresh(state, 1000 + MPC_COMMAND_TIMEOUT_MS));
+  TEST_ASSERT_FALSE(mpcOverrideFresh(state, 1000 + MPC_COMMAND_TIMEOUT_MS + 1));
+  clearMpcOverride(state);
+  TEST_ASSERT_FALSE(mpcOverrideFresh(state, 1001));
+  TEST_ASSERT_EQUAL_UINT8(0, state.pwm);
+  TEST_ASSERT_EQUAL_INT16(0, state.preheatTargetCx100);
+}
+
+void test_mpc_preheat_limit_never_pushes_below_operator_setpoint() {
+  MpcOverrideState state = {false, 0, 0, 0};
+  int16_t raisedOperatorSetpoint = MPC_PREHEAT_LIMIT_Cx100 + 25;
+  setMpcOverride(state, 128, MPC_PREHEAT_LIMIT_Cx100,
+                 raisedOperatorSetpoint, 1000);
+
+  TEST_ASSERT_EQUAL_INT16(raisedOperatorSetpoint, state.preheatTargetCx100);
+}
+
+void test_mpc_temperature_ceiling_is_bounded_by_lockout() {
+  TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100 + MPC_MAX_OVERSHOOT_Cx100,
+                          mpcTemperatureCeilingCx100(SETPOINT_Cx100));
+  TEST_ASSERT_EQUAL_INT16(OFF_LOCKOUT_HIGH_Cx100,
+                          mpcTemperatureCeilingCx100(OFF_LOCKOUT_HIGH_Cx100));
 }
 
 void test_telemetry_mode_reports_off_until_system_is_enabled() {
@@ -227,6 +272,10 @@ void test_runtime_setpoint_rejects_out_of_safe_band() {
   TEST_ASSERT_EQUAL_INT16(SETPOINT_Cx100, targetSetpointCx100);
 }
 
+void test_continuous_operation_build_disables_runtime_limit() {
+  TEST_ASSERT_EQUAL_INT(0, ENABLE_RUNTIME_LIMIT);
+}
+
 void test_runtime_setpoint_updates_target_and_can_restart_ramp() {
   resetAutotune(1000);
   controlMode = CTRL_PID_HOLD;
@@ -297,6 +346,7 @@ static void runFunctionTests() {
   RUN_TEST(test_adc_sensor_fault_detects_rail_values);
   RUN_TEST(test_adc_sensor_fault_uses_recovery_hysteresis);
   RUN_TEST(test_pump_temperature_gate_enables_with_headroom);
+  RUN_TEST(test_pump_temperature_gate_can_wait_for_ml_preheat_target);
   RUN_TEST(test_pump_enable_threshold_matches_operating_setpoint);
   RUN_TEST(test_pump_temperature_gate_uses_low_hysteresis);
   RUN_TEST(test_pump_temperature_gate_blocks_upper_limit);
@@ -304,6 +354,10 @@ static void runFunctionTests() {
   RUN_TEST(test_motor_timer_uses_enabled_state_and_cycle_phase);
   RUN_TEST(test_motor_prebias_window_is_only_before_cycle_end);
   RUN_TEST(test_motor_bias_adds_prebias_and_on_bias_with_pwm_clamp);
+  RUN_TEST(test_mpc_override_clamps_to_firmware_heater_limit);
+  RUN_TEST(test_mpc_override_expires_and_can_be_cleared);
+  RUN_TEST(test_mpc_preheat_limit_never_pushes_below_operator_setpoint);
+  RUN_TEST(test_mpc_temperature_ceiling_is_bounded_by_lockout);
   RUN_TEST(test_telemetry_mode_reports_off_until_system_is_enabled);
   RUN_TEST(test_reset_autotune_restores_initial_controller_state);
   RUN_TEST(test_autotune_warmup_pwm_and_relay_transition);
@@ -312,6 +366,7 @@ static void runFunctionTests() {
   RUN_TEST(test_pid_lockout_disables_output_and_clears_integral);
   RUN_TEST(test_pid_ramp_advances_to_final_hold);
   RUN_TEST(test_runtime_setpoint_rejects_out_of_safe_band);
+  RUN_TEST(test_continuous_operation_build_disables_runtime_limit);
   RUN_TEST(test_runtime_setpoint_updates_target_and_can_restart_ramp);
   RUN_TEST(test_telemetry_header_column_count_matches_schema_constant);
   RUN_TEST(test_telemetry_header_uses_expected_column_order);

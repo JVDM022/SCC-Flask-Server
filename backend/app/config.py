@@ -17,6 +17,13 @@ class Config:
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MODEL_DIR = os.getenv("MODEL_DIR", str(BASE_DIR.parent / "models"))
+    MPC_CLOSED_LOOP_ENABLED = os.getenv("MPC_CLOSED_LOOP_ENABLED", "0") == "1"
+    MPC_MAX_PWM = min(200, max(0, int(os.getenv("MPC_MAX_PWM", "200"))))
+    MPC_MAX_SAMPLE_GAP_SECONDS = float(os.getenv("MPC_MAX_SAMPLE_GAP_SECONDS", "3.0"))
+    MPC_PREHEAT_MAX_C = float(os.getenv("MPC_PREHEAT_MAX_C", "128.0"))
+    MPC_PUMP_PROBE_PWM = min(255, max(0, int(os.getenv("MPC_PUMP_PROBE_PWM", "155"))))
+    # Must match firmware/arduino/SCC-V1.4/include/config.h.
+    MPC_FIRMWARE_WATCHDOG_MS = 3500
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
     API_WRITE_KEY = os.getenv("API_WRITE_KEY", "")
     FIRMWARE_SOURCE_DIR = os.getenv("FIRMWARE_SOURCE_DIR", "/app/firmware")

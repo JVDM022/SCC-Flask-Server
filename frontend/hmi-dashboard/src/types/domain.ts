@@ -88,6 +88,8 @@ export interface MpcRecommendation {
   cost?: number | null;
   model_status?: string;
   advisory_only?: boolean;
+  predicted_pump_drop_c?: number | null;
+  preheat_target_c?: number | null;
   message?: string;
 }
 

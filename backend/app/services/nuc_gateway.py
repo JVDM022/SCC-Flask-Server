@@ -76,6 +76,10 @@ def serial_command_for_backend_command(command: dict[str, Any]) -> str | None:
         return f"SET_HEATER {int(command.get('value') or 0)}"
     if command_type == "SET_PUMP":
         return f"SET_PUMP {int(command.get('value') or 0)}"
+    if command_type == "MPC_PWM":
+        return f"MPC_PWM {int(command.get('value') or 0)}"
+    if command_type == "MPC_CONTROL":
+        return f"MPC_CONTROL {int(command.get('value') or 0)} {float(command.get('setpoint_c') or 0.0):.2f}"
     if command_type == "SETPOINT":
         setpoint_c = float(command.get("setpoint_c"))
         return f"SETPOINT {setpoint_c:.2f}"
@@ -286,19 +290,31 @@ class NucGateway:
             now = time.monotonic()
             try:
                 self.read_once()
-                if now - last_heartbeat >= self.config.heartbeat_interval_s:
-                    self.send_heartbeat()
-                    last_heartbeat = now
-                if now - last_poll >= self.config.poll_interval_s:
-                    command = self.poll_command()
-                    if command is not None:
-                        self.handle_command(command)
-                    last_poll = now
             except KeyboardInterrupt:
                 raise
             except Exception as exc:
-                LOGGER.exception("NUC gateway loop error: %s", exc)
-                time.sleep(2.0)
+                # A telemetry/database failure must never starve command
+                # polling. Manual OFF/KILL and recovery commands still need a
+                # path to the Arduino when telemetry storage is unavailable.
+                LOGGER.exception("NUC gateway telemetry error: %s", exc)
+
+            if now - last_heartbeat >= self.config.heartbeat_interval_s:
+                try:
+                    self.send_heartbeat()
+                except Exception as exc:
+                    LOGGER.exception("NUC gateway heartbeat error: %s", exc)
+                finally:
+                    last_heartbeat = now
+
+            if now - last_poll >= self.config.poll_interval_s:
+                try:
+                    command = self.poll_command()
+                    if command is not None:
+                        self.handle_command(command)
+                except Exception as exc:
+                    LOGGER.exception("NUC gateway command polling error: %s", exc)
+                finally:
+                    last_poll = now
 
 
 def config_from_args(argv: list[str] | None = None) -> GatewayConfig:

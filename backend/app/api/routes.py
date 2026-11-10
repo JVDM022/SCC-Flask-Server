@@ -8,10 +8,15 @@ from ..alarms.lifecycle import sync_active_alarms
 from ..alarms.rules import evaluate_alarms
 from ..database.db import db
 from ..database.models import Alarm, ControlCommand, Device, Event, MpcRecommendation, MqttMessageLog, PumpCycle, Telemetry
-from ..ml.predictor import ThermalPredictor
-from ..mpc.advisory import recommend_heater_pwm
 from ..services.firmware_ota import record_event, status_summary, upsert_heartbeat
 from ..services.mqtt_subscriber import mqtt_status
+from ..services.mpc_control import (
+    get_predictor,
+    process_closed_loop,
+    recent_telemetry_history,
+    recommendation_for,
+    runtime_status,
+)
 from ..services.notification_email import notify_critical_alarms
 from ..services.pump_cycles import extract_pump_cycle_from_event
 from ..services.telemetry_parser import TELEMETRY_COLUMNS, parse_csv_batch
@@ -39,7 +44,7 @@ def _filter_telemetry_payload(payload: dict) -> dict:
     return row
 
 
-def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
+def _store_telemetry(row: dict, commit: bool = True, run_control: bool = False) -> Telemetry:
     telemetry = Telemetry(**_filter_telemetry_payload(row))
     db.session.add(telemetry)
     db.session.flush()
@@ -62,6 +67,8 @@ def _store_telemetry(row: dict, commit: bool = True) -> Telemetry:
     sync_active_alarms(telemetry, alarms)
 
     extract_pump_cycle_from_event(telemetry)
+    if run_control:
+        process_closed_loop(telemetry)
     if commit:
         db.session.commit()
         notify_critical_alarms(current_app._get_current_object(), telemetry, alarms)
@@ -137,7 +144,8 @@ def post_telemetry():
     if not isinstance(payload, dict):
         return jsonify({"status": "error", "message": "Expected JSON telemetry object."}), 400
     try:
-        telemetry = _store_telemetry(payload)
+        is_live_nuc_sample = (payload.get("raw_payload") or {}).get("source") == "arduino_usb"
+        telemetry = _store_telemetry(payload, run_control=is_live_nuc_sample)
     except ValueError as exc:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -249,8 +257,9 @@ def ml_prediction():
     telemetry = Telemetry.query.order_by(Telemetry.created_at.desc(), Telemetry.id.desc()).first()
     if telemetry is None:
         return jsonify({"status": "unavailable", "message": "No telemetry rows are available."})
-    predictor = ThermalPredictor(current_app.config["MODEL_DIR"])
-    return jsonify(predictor.predict_all(telemetry.to_dict()))
+    predictor = get_predictor()
+    history = recent_telemetry_history(telemetry)
+    return jsonify(predictor.predict_all(telemetry.to_dict(), history=history))
 
 
 @api.get("/mpc/recommendation")
@@ -258,8 +267,7 @@ def mpc_recommendation():
     telemetry = Telemetry.query.order_by(Telemetry.created_at.desc(), Telemetry.id.desc()).first()
     if telemetry is None:
         return jsonify({"status": "unavailable", "message": "No telemetry rows are available."})
-    predictor = ThermalPredictor(current_app.config["MODEL_DIR"])
-    result = recommend_heater_pwm(telemetry.to_dict(), predictor=predictor)
+    result = recommendation_for(telemetry)
     db.session.add(
         MpcRecommendation(
             current_temp_c=telemetry.temp_c,
@@ -272,6 +280,11 @@ def mpc_recommendation():
     )
     db.session.commit()
     return jsonify(result.to_dict())
+
+
+@api.get("/mpc/status")
+def mpc_status():
+    return jsonify(runtime_status())
 
 
 @api.post("/control/setpoint")
@@ -308,7 +321,7 @@ def control_manual_kill():
     ControlCommand.query.filter_by(command_type="KILL", applied=False).delete(synchronize_session=False)
     if enabled:
         ControlCommand.query.filter(
-            ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP"]),
+            ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP", "MPC_PWM", "MPC_CONTROL"]),
             ControlCommand.applied.is_(False),
         ).delete(synchronize_session=False)
     command = ControlCommand(command_type="KILL", value=1 if enabled else 0, setpoint_c=0.0)
@@ -336,7 +349,7 @@ def control_power():
     # A queued power command represents desired state, so a newer click
     # supersedes any older unsent ON/OFF command.
     ControlCommand.query.filter(
-        ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP"]),
+        ControlCommand.command_type.in_(["SET_ON", "SET_HEATER", "SET_PUMP", "MPC_PWM", "MPC_CONTROL"]),
         ControlCommand.applied.is_(False),
     ).delete(synchronize_session=False)
     command = ControlCommand(command_type="SET_ON", value=1 if enabled else 0, setpoint_c=0.0)
@@ -358,7 +371,7 @@ def _queue_actuator_command(command_type: str, enabled: bool):
     # The newest actuator request supersedes an older full-system request, but
     # preserves a pending request for the other actuator.
     ControlCommand.query.filter(
-        ControlCommand.command_type.in_(["SET_ON", command_type]),
+        ControlCommand.command_type.in_(["SET_ON", command_type, "MPC_PWM", "MPC_CONTROL"]),
         ControlCommand.applied.is_(False),
     ).delete(synchronize_session=False)
     command = ControlCommand(command_type=command_type, value=1 if enabled else 0, setpoint_c=0.0)

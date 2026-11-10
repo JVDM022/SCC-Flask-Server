@@ -1,6 +1,6 @@
 # scc-control-platform
 
-A small SCADA-like research control platform for a thermal SCC/corrosion test rig. Arduino SCC firmware owns rig control behavior, while an Intel NUC USB gateway handles communications to the Flask backend. PostgreSQL stores the time series, and the backend derives alarms, pump-cycle statistics, ML temperature predictions, and advisory MPC heater PWM recommendations. The React HMI dashboard provides live monitoring, trends, alarms, events, ML predictions, MPC output, firmware updates, and equipment health views.
+A small SCADA-like research control platform for a thermal SCC/corrosion test rig. Arduino SCC firmware owns rig safety and fallback control, while an Intel NUC USB gateway handles communications to the Flask backend. PostgreSQL stores the time series, and the backend derives alarms, pump-cycle statistics, ML temperature predictions, and guarded MPC heater PWM recommendations. The React HMI dashboard provides live monitoring, trends, alarms, events, ML predictions, MPC output, firmware updates, and equipment health views.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ Arduino SCC controller -> USB serial -> Intel NUC gateway -> Flask API -> Postgr
                                                                   |-> alarms and events
                                                                   |-> pump-cycle extraction
                                                                   |-> ML prediction
-                                                                  |-> advisory MPC
+                                                                  |-> guarded MPC (opt-in)
                                                                   |-> React HMI dashboard
 ```
 
@@ -69,6 +69,7 @@ The Flask backend subscribes to Mosquitto when `MQTT_ENABLED=1`, parses MQTT pay
 - `GET /api/alarms/active`: active alarms.
 - `GET /api/pump-cycles`: extracted pump cycle statistics.
 - `GET /api/ml/prediction`: predicted temperatures for +1s, +5s, and +10s when models exist.
+- `GET /api/mpc/status`: closed-loop enablement, model horizons, watchdog, and latest command state.
 - `GET /api/mpc/recommendation`: advisory heater PWM recommendation.
 - `POST /api/control/setpoint`: store a desired setpoint command.
 - `POST /api/control/power`: queue a controller on/off command through the Intel NUC gateway.
@@ -93,7 +94,13 @@ Event codes: `0` normal sample, `1` pump start, `2` pump end, `3` pump recovered
 
 ## Safety Philosophy
 
-Arduino firmware and hardware own hard safety. Flask, ML, MPC, and the Intel NUC gateway are monitoring, communications, and advisory layers, not the only protection layer. Heater lockout, manual kill, and hard kill override all recommendations; MPC returns PWM 0 when any of those states is active.
+Arduino firmware and hardware own hard safety. Flask, ML, MPC, and the Intel NUC gateway are never the only protection layer. Closed-loop MPC is disabled by default (`MPC_CLOSED_LOOP_ENABLED=0`). When enabled, it only sends PWM overrides in PID-hold mode with ten contiguous telemetry samples and a loaded 5-second model. The Arduino expires an override after 3.5 seconds and returns to local PID. Heater lockout, a target-plus-0.5 C ceiling, manual kill, sensor fault, the optional runtime limit, and hard kill remain local firmware overrides.
+
+The continuous-operation build sets `ENABLE_RUNTIME_LIMIT=0`, so it does not force a shutdown after 96 hours. Set the flag to `1` to restore that behavior. Manual kill, ADC/thermistor fault detection, heater lockout, and the hard temperature kill remain active regardless of this setting. Arduino `millis()` telemetry wraps normally after approximately 49.7 days.
+
+The trained model is observational, so the backend also enforces a physically directed recovery floor: at least PWM 184 when temperature is 2 C or more below setpoint, and at least PWM 128 when it is 0.5 C or more below setpoint. This prevents a reverse-causality artifact in the training data from selecting zero heat during recovery.
+
+Before each pump cycle, the backend also probes the 5-second model with a simulated pump-start state. It combines the predicted drop with the last measured pump drop and calculates `preheat target = setpoint + drop`, capped by `MPC_PREHEAT_MAX_C`. The Arduino waits for this target before re-enabling the pump. Its compile-time `MPC_PREHEAT_LIMIT_Cx100`, lockout, and hard-kill thresholds remain independent limits; changing the validated safety envelope requires reviewing all of them together.
 
 
 ## Manual Emergency Control

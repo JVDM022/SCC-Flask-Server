@@ -166,7 +166,7 @@ def test_nuc_fetches_power_control_commands(client):
         assert command.sent_at is not None
 
 
-@pytest.mark.parametrize("command_type", ["SET_HEATER", "SET_PUMP"])
+@pytest.mark.parametrize("command_type", ["SET_HEATER", "SET_PUMP", "MPC_PWM", "MPC_CONTROL"])
 def test_nuc_fetches_individual_actuator_commands(client, command_type):
     with client.application.app_context():
         db.session.add(ControlCommand(command_type=command_type, value=1, setpoint_c=0.0))
@@ -178,6 +178,8 @@ def test_nuc_fetches_individual_actuator_commands(client, command_type):
     body = response.get_json()
     assert body["type"] == command_type
     assert body["value"] == 1
+    if command_type == "MPC_CONTROL":
+        assert body["setpoint_c"] == 0.0
 
 
 def test_failed_control_delivery_remains_pending_for_retry(client):

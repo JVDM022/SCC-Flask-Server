@@ -18,9 +18,9 @@ export function MpcDashboard({ data }: MpcDashboardProps) {
     <main className="workspace">
       <section className="metric-grid">
         <MetricCard icon={Target} label="Current State" value={formatNumber(latest?.temp_c)} unit="C" detail={`Error ${formatNumber(tempError)} C`} />
-        <MetricCard icon={Gauge} label="Current PWM" value={formatNumber(data.mpc.current_pwm ?? latest?.heater_pwm, 0)} unit="/255" />
-        <MetricCard icon={Zap} label="Recommended PWM" value={formatNumber(data.mpc.recommended_pwm, 0)} unit="/255" tone={data.mpc.status === 'safety_override' ? 'critical' : 'accent'} detail={data.mpc.status} />
-        <MetricCard icon={Cpu} label="Optimization Cost" value={formatNumber(data.mpc.cost, 3)} detail={data.mpc.model_status || 'model status unavailable'} />
+        <MetricCard icon={Gauge} label="Current PWM" value={formatNumber(data.mpc.current_pwm ?? latest?.heater_pwm, 0)} unit="/200" />
+        <MetricCard icon={Zap} label="Recommended PWM" value={formatNumber(data.mpc.recommended_pwm, 0)} unit="/200" tone={data.mpc.status === 'safety_override' ? 'critical' : 'accent'} detail={data.mpc.advisory_only === false ? 'Closed-loop command' : `Advisory: ${data.mpc.status}`} />
+        <MetricCard icon={Cpu} label="ML Preheat Target" value={formatNumber(data.mpc.preheat_target_c)} unit="C" detail={`Predicted pump drop ${formatNumber(data.mpc.predicted_pump_drop_c)} C`} />
       </section>
 
       <section className="workspace-grid workspace-grid--main">

@@ -1,0 +1,18 @@
+{
+  "use_cuda_requested": true,
+  "nvtx_enabled": false,
+  "selected_models": {
+    "1s": {
+      "name": "HistGradientBoostingRegressor",
+      "backend": "cpu"
+    },
+    "5s": {
+      "name": "HistGradientBoostingRegressor",
+      "backend": "cpu"
+    },
+    "10s": {
+      "name": "GradientBoostingRegressor",
+      "backend": "cpu"
+    }
+  }
+}

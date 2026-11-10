@@ -27,7 +27,9 @@ class Telemetry(db.Model, SerializerMixin):
     mqtt_topic = db.Column(db.String(255), nullable=True)
     raw_payload = db.Column(db.JSON, nullable=True)
     event = db.Column(db.Integer, nullable=True)
-    ms = db.Column(db.Integer, nullable=True)
+    # Arduino millis() is an unsigned 32-bit counter. PostgreSQL INTEGER is
+    # signed 32-bit and overflows after about 24.85 days, so this must be BIGINT.
+    ms = db.Column(db.BigInteger, nullable=True)
     temp_c = db.Column(db.Float, nullable=True)
     adc = db.Column(db.Integer, nullable=True)
     dtemp_c_per_s = db.Column(db.Float, nullable=True)

@@ -14,7 +14,7 @@ Before starting a test run, verify that the heater, pump, thermistor, Arduino co
 - Verify that the bath remains within the intended operating window and that heater lockout, manual kill, and hard kill indicators remain clear.
 - Confirm that pump cycles occur only when the controller reports sufficient thermal headroom.
 - Review active alarms and event timeline entries during each operating session.
-- Do not treat ML predictions or MPC recommendations as safety controls; they are advisory only.
+- Treat ML/MPC as performance controls only, never as the rig's safety layer. When closed loop is enabled, confirm `/api/mpc/status` reports a loaded 5-second model and watch for automatic fallback to local PID if telemetry stops.
 - Record abnormal behavior, operator actions, alarms, and shutdown events in the test log.
 - Stop the test using the manual emergency control or physical disconnect if unsafe conditions are observed.
 
@@ -44,3 +44,4 @@ If any critical alarm occurs, the operator must prioritize physical safety over 
 - PostgreSQL data logging shall be verified by confirming that recent telemetry appears in the history and latest telemetry endpoints.
 - Operators shall remain near the rig during active heating unless an independent physical safety cutoff and approved unattended-operation procedure are in place.
 - Any abnormal noise, smell, overheating, fluid leak, unexpected pump behavior, or stale telemetry shall trigger test pause or shutdown.
+- The continuous-operation firmware does not impose the former 96-hour shutdown. Operators must therefore use an approved monitoring schedule and manually stop the rig at the end of a run; sensor, lockout, and hard-kill protections remain active.

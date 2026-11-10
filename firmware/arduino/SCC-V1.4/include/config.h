@@ -15,6 +15,11 @@
 // ================== CONTROL TIMING ==================
 #define CONTROL_DT_MS    700
 #define HEATER_PWM_MAX   200
+#define MPC_COMMAND_TIMEOUT_MS 3500UL
+#define MPC_MAX_OVERSHOOT_Cx100 50
+// Temporary ML preheat target. If the validated safety envelope changes,
+// review this together with lockout and hard-kill thresholds.
+#define MPC_PREHEAT_LIMIT_Cx100 12800
 
 // ================== AUTOTUNE REGION (A) ==================
 // Tune in a reachable upper region with motor ON
@@ -71,6 +76,12 @@
 #define MOTOR_START_PWM      180     // startup kick PWM
 
 // ================== RUNTIME LIMIT ==================
+// Set to 1 when a forced periodic shutdown is required. With this disabled,
+// sensor fault, manual kill, heater lockout, and hard-kill protections remain
+// active. Arduino millis() telemetry still wraps after about 49.7 days.
+#ifndef ENABLE_RUNTIME_LIMIT
+#define ENABLE_RUNTIME_LIMIT 0
+#endif
 #define MAX_RUNTIME_MS 345600000UL  // 96 hours
 
 // ================== ESP32-DRIVEN UPDATE PREP ==================

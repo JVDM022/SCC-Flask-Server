@@ -36,6 +36,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://scc:scc@postgres:5432/scc_control
       MODEL_DIR: /app/models
+      MPC_CLOSED_LOOP_ENABLED: ${MPC_CLOSED_LOOP_ENABLED:-0}
+      MPC_MAX_PWM: ${MPC_MAX_PWM:-200}
+      MPC_MAX_SAMPLE_GAP_SECONDS: ${MPC_MAX_SAMPLE_GAP_SECONDS:-3.0}
+      MPC_PREHEAT_MAX_C: ${MPC_PREHEAT_MAX_C:-128.0}
+      MPC_PUMP_PROBE_PWM: ${MPC_PUMP_PROBE_PWM:-155}
       CORS_ORIGINS: https://app.scc316.us
       PUBLIC_BASE_URL: https://api.scc316.us
       API_WRITE_KEY: ${API_WRITE_KEY:-}
